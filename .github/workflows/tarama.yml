@@ -3,7 +3,7 @@ name: BIST Otomatik Tarama
 on:
   schedule:
     - cron: '*/15 * * * *'  # Her 15 dakikada bir çalışır
-  workflow_dispatch:          # Elle (Run workflow ile) tetiklenebilir
+  workflow_dispatch:          # Elle tetiklenebilir
 
 jobs:
   build:
@@ -21,8 +21,9 @@ jobs:
     - name: Gerekli Kütüphaneleri Yükle
       run: |
         python -m pip install --upgrade pip
-        pip install requests yfinance pandas
+        pip install --no-cache-dir requests yfinance pandas
 
     - name: Taramayı Çalıştır
       run: python main.py
+
 
