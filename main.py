@@ -116,8 +116,8 @@ def run_scanner():
             plus_di_curr = plus_di.iloc[-1]
             cmf_curr = cmf.iloc[-1]
 
-            # Koşullar: MFI 70 yukarı kesişim, +DI > 35, RSI > 50, CMF > -0.20
-            if (mfi_prev < 70 and mfi_curr >= 70) and (plus_di_curr > 35) and (rsi_curr > 50) and (cmf_curr > -0.20):
+            # Koşullar: MFI 70 yukarı kesişim, +DI > 30, RSI > 50, CMF > -0.20
+            if (mfi_prev < 70 and mfi_curr >= 70) and (plus_di_curr > 30) and (rsi_curr > 50) and (cmf_curr > -0.20):
                 matched.append(clean_ticker.replace(".IS", ""))
 
         except Exception as e:
