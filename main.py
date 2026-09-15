@@ -1,138 +1,133 @@
+import requests
 import yfinance as yf
 import pandas as pd
-import pandas_ta as ta
-import requests
-import urllib.parse
 import time
 
-PHONE_NUMBER = "905462848792"
-API_KEY = "3477940"
-
-def whatsapp_mesaj_gonder(mesaj):
-    try:
-        encoded_msg = urllib.parse.quote(mesaj)
-        url = f"https://api.callmebot.com/whatsapp.php?phone={PHONE_NUMBER}&text={encoded_msg}&apikey={API_KEY}"
-        requests.get(url, timeout=10)
-    except Exception as e:
-        print(f"Hata oluştu: {e}")
-
-# TÜM BIST HİSSELERİ (Tüm Alfabeye Göre Alfabetik)
-bist_hisseleri = [
-    "AAVST.IS", "A1CAP.IS", "ACSEL.IS", "ADEL.IS", "ADESE.IS", "AGHOL.IS", "AGROT.IS", "AHGAZ.IS", "AKBNK.IS", "AKCNS.IS",
-    "AKFGY.IS", "AKFYE.IS", "AKMGY.IS", "AKSA.IS", "AKSEN.IS", "AKSGY.IS", "AKSUE.IS", "AKTVF.IS", "ALARK.IS", "ALBRK.IS",
-    "ALCAR.IS", "ALCTL.IS", "ALFAS.IS", "ALGYO.IS", "ALKA.IS", "ALKIM.IS", "ALTNY.IS", "ALMAD.IS", "ALVES.IS", "ANELE.IS",
-    "ANGEN.IS", "ANHYT.IS", "ANSGR.IS", "ARASE.IS", "ARCLK.IS", "ARDYZ.IS", "ARENA.IS", "ARSAN.IS", "ARTMS.IS", "ASELS.IS",
-    "ASGYO.IS", "ASTOR.IS", "ASUZU.IS", "ATAGY.IS", "ATATP.IS", "ATEKS.IS", "ATSYH.IS", "AVOD.IS", "AVPGY.IS", "AVTUR.IS",
-    "AYCES.IS", "AYDEM.IS", "AYGAZ.IS", "AZTEK.IS", "BAGFS.IS", "BAKAB.IS", "BALAT.IS", "BANVT.IS", "BARMA.IS", "BASGZ.IS",
-    "BAYRK.IS", "BEGYO.IS", "BERA.IS", "BEYAZ.IS", "BFREN.IS", "BIENP.IS", "BIGCH.IS", "BIMAS.IS", "BIOEN.IS", "BIZIM.IS",
-    "BJKAS.IS", "BLCYT.IS", "BNTAS.IS", "BOBET.IS", "BORLS.IS", "BOSSA.IS", "BRCVN.IS", "BRISA.IS", "BRKO.IS", "BRKSN.IS",
-    "BRMEN.IS", "BRSAN.IS", "BRYAT.IS", "BSOKE.IS", "BTCIM.IS", "BUCIM.IS", "BURCE.IS", "BURVA.IS", "BVSAN.IS", "BYDNR.IS",
-    "CANTE.IS", "CATES.IS", "CCOLA.IS", "CELHA.IS", "CEMAS.IS", "CEMTS.IS", "CMBTN.IS", "CMENT.IS", "CONSE.IS", "COSMO.IS",
-    "CRDFA.IS", "CRFSA.IS", "CUSAN.IS", "CVKMD.IS", "CWENE.IS", "DAGI.IS", "DAPGM.IS", "DARDL.IS", "DGATE.IS", "DGGYO.IS",
-    "DITAS.IS", "DMRGD.IS", "DMSAS.IS", "DOAS.IS", "DOBUR.IS", "DOCO.IS", "DOHOL.IS", "DOKTA.IS", "DURDO.IS", "DYOBY.IS",
-    "DZGYO.IS", "EBEBK.IS", "ECILC.IS", "ECZYT.IS", "EDATA.IS", "EDIP.IS", "EGEEN.IS", "EGGUB.IS", "EGPRO.IS", "EGSER.IS",
-    "EKGYO.IS", "EKIZ.IS", "EKLTV.IS", "ELITE.IS", "EMKEL.IS", "ENJSA.IS", "ENKAI.IS", "ENTRA.IS", "EPLAS.IS", "ERBOS.IS",
-    "EREGL.IS", "ERSU.IS", "ESCAR.IS", "ESEN.IS", "ETILR.IS", "EUPWR.IS", "EUREK.IS", "EYGYO.IS", "FORMT.IS", "FORTE.IS",
-    "FRIGO.IS", "FROTO.IS", "FZLGY.IS", "GARAN.IS", "GARFA.IS", "GEDIK.IS", "GEDZA.IS", "GENIL.IS", "GENTAS.IS", "GESAN.IS",
-    "GIPTA.IS", "GLBMD.IS", "GLCVY.IS", "YATAS.IS", "GLYHO.IS", "GMTAS.IS", "GOKNR.IS", "GOLTS.IS", "GOODY.IS", "GOZDE.IS",
-    "GRNYO.IS", "GRSEL.IS", "GSDHO.IS", "GSDEVR.IS", "GSDDE.IS", "GUBRF.IS", "GWIND.IS", "GZNMI.IS", "HALKB.IS", "HATEK.IS",
-    "HEKTS.IS", "HKTM.IS", "HLGYO.IS", "HUBVC.IS", "HUNER.IS", "HURGZ.IS", "ICUGS.IS", "IDGYO.IS", "IEYHO.IS", "IHAAS.IS",
-    "IHEVA.IS", "IHGZT.IS", "IHLAS.IS", "IHLGM.IS", "IHYAY.IS", "IMASM.IS", "INDES.IS", "INFO.IS", "INGRM.IS", "INTEM.IS",
-    "INVEO.IS", "INVES.IS", "IPEKE.IS", "ISATR.IS", "ISBTR.IS", "ISCTR.IS", "ISCUR.IS", "ISDMR.IS", "ISFIN.IS", "ISGSY.IS",
-    "ISGYO.IS", "ISKPL.IS", "ISMEN.IS", "ISSEN.IS", "ITEKS.IS", "IYYU.IS", "IZINV.IS", "IZMDC.IS", "JANTS.IS", "KAFEIN.IS",
-    "KLSER.IS", "KAMWE.IS", "KAPLM.IS", "KAREL.IS", "KARSN.IS", "KARTN.IS", "KATMR.IS", "KAYSE.IS", "KCAER.IS", "KCHOL.IS",
-    "KENT.IS", "KRVGD.IS", "KBORU.IS", "KGYO.IS", "KIMMR.IS", "KLGYO.IS", "KLMSN.IS", "KLSYN.IS", "KMPUR.IS", "KNFRT.IS",
-    "KONTR.IS", "KONYE.IS", "KORDS.IS", "KOZAA.IS", "KOZAL.IS", "KRDMA.IS", "KRDMB.IS", "KRDMD.IS", "KRONT.IS", "KRPLS.IS",
-    "KRTEK.IS", "KSTUR.IS", "KTLEV.IS", "KTVKY.IS", "KUYAŞ.IS", "KZBGY.IS", "KZGYO.IS", "LIDER.IS", "LIDFA.IS", "LINK.IS",
-    "LKMNH.IS", "LMKDC.IS", "LUKSK.IS", "MAALT.IS", "MACKO.IS", "MAKIM.IS", "MAKTK.IS", "MANAS.IS", "MARKA.IS", "MARTI.IS",
-    "MAVI.IS", "MEDTR.IS", "MEGAP.IS", "MEGMT.IS", "MEPET.IS", "MERCN.IS", "MERIT.IS", "MERKO.IS", "METRO.IS", "METUR.IS",
-    "MGROS.IS", "MHRGY.IS", "MIATK.IS", "MMPCT.IS", "MOBTL.IS", "MNDRS.IS", "MNDTR.IS", "MOBTL.IS", "MOGAN.IS", "MPARK.IS",
-    "MRGYO.IS", "MRSHL.IS", "MSGYO.IS", "MTRKS.IS", "MTRYO.IS", "MZHLD.IS", "NATEN.IS", "NETAS.IS", "NIBAS.IS", "NTGAZ.IS",
-    "NTHOL.IS", "NUGYO.IS", "NUHCM.IS", "OBAMS.IS", "OBASE.IS", "ODAS.IS", "OFSYM.IS", "ONCSM.IS", "ORCA.IS", "ORGE.IS",
-    "ORMA.IS", "OSMEN.IS", "OSTIM.IS", "OTKAR.IS", "OTTO.IS", "OYAKC.IS", "OYYAT.IS", "OZATD.IS", "OZGYO.IS", "OZKGY.IS",
-    "OZRDN.IS", "OZSUB.IS", "PAGYO.IS", "PAMEL.IS", "PAPIL.IS", "PARSN.IS", "PASEU.IS", "PATS.IS", "PENGD.IS", "PENTAS.IS",
-    "PETKM.IS", "PETUN.IS", "PGSUS.IS", "PINAR.IS", "PKART.IS", "PKENT.IS", "PLTUR.IS", "PNLSN.IS", "PNSUT.IS", "POLHO.IS",
-    "POLTK.IS", "PRDGS.IS", "PRKAB.IS", "PRKME.IS", "PRZMA.IS", "PSDTC.IS", "PSGYO.IS", "QUAGR.IS", "RALYH.IS", "RAYSG.IS",
-    "REEDR.IS", "RNPOL.IS", "RODRG.IS", "ROYAL.IS", "RTALB.IS", "RUBNS.IS", "RYGYO.IS", "RYSAS.IS", "SAHOL.IS", "SAMAT.IS",
-    "SANEL.IS", "SANFM.IS", "SANGS.IS", "SANFO.IS", "SANKO.IS", "SARKY.IS", "SASA.IS", "SAYAS.IS", "SDTTR.IS", "SEGMN.IS",
-    "SEKFK.IS", "SEKUR.IS", "SELEC.IS", "SELVA.IS", "SEYKM.IS", "SILVR.IS", "SISE.IS", "SKBNK.IS", "SKTAS.IS", "SKYMD.IS",
-    "SMART.IS", "SMRTG.IS", "SNAAM.IS", "SNICA.IS", "SNKRN.IS", "SNPAM.IS", "SODSN.IS", "SOKM.IS", "SONME.IS", "SRVGY.IS",
-    "SUMAS.IS", "SUNTK.IS", "SURGY.IS", "SUWEN.IS", "TABGD.IS", "TAKST.IS", "TARKM.IS", "TATEN.IS", "TATGD.IS", "TAVHL.IS",
-    "TBORG.IS", "TCELL.IS", "TDGYO.IS", "TEKTN.IS", "TERA.IS", "TETMT.IS", "TEZOL.IS", "TGSAS.IS", "THYAO.IS", "TKFEN.IS",
-    "TKNSA.IS", "TLMAN.IS", "TMPOL.IS", "TMSN.IS", "TNZTP.IS", "TOASO.IS", "TRCAS.IS", "TRGYO.IS", "TRILC.IS", "TSKB.IS", "TSPOR.IS",
-    "TTKOM.IS", "TTRAK.IS", "TUCLK.IS", "TUPRS.IS", "TURSG.IS", "UFUK.IS", "ULAS.IS", "ULKER.IS", "ULUFA.IS", "ULUSE.IS",
-    "ULUUN.IS", "UNLU.IS", "USAK.IS", "VAKBN.IS", "VAKFN.IS", "VAKKO.IS", "VANGD.IS", "VBTYZ.IS", "VERTU.IS", "VERUS.IS",
-    "VESBE.IS", "VESTL.IS", "VKFYO.IS", "VKGYO.IS", "VKING.IS", "YAPRK.IS", "YATAS.IS", "YAYLA.IS", "YEOTK.IS", "YGGYO.IS",
-    "YGYO.IS", "YKBNK.IS", "YONGA.IS", "YOTAS.IS", "YUNSA.IS", "YYLGD.IS", "ZEDUR.IS", "ZELVE.IS", "ZOREN.IS", "ZRGYO.IS"
+# BIST Tüm Hisseler (Yüzlerce hisse kapsayan kapsamlı liste)
+STOCKS = [
+    "AAVST.IS", "ACSEL.IS", "ADEL.IS", "ADESE.IS", "ADGYO.IS", "AEFES.IS", "AFYON.IS", "AGESA.IS", "AGHOL.IS", "AGROT.IS",
+    "AKBNK.IS", "AKENR.IS", "AKFGY.IS", "AKFYE.IS", "AKGRT.IS", "AKMGY.IS", "AKSA.IS", "AKSEN.IS", "AKSGY.IS", "ALARK.IS",
+    "ALBRK.IS", "ALCAR.IS", "ALCTL.IS", "ALFAS.IS", "ALKA.IS", "ALKIM.IS", "ALKLC.IS", "ALMAT.IS", "ANELE.IS", "ANGEN.IS",
+    "ANHYT.IS", "ANSGR.IS", "ARASE.IS", "ARCLK.IS", "ARDYZ.IS", "ARENA.IS", "ARSAN.IS", "ARTMS.IS", "ARZUM.IS", "ASELS.IS",
+    "ASTOR.IS", "ASUZU.IS", "ATAKP.IS", "ATATP.IS", "ATEKS.IS", "ATLAS.IS", "AVGYO.IS", "AVOD.IS", "AVPGY.IS", "AYCES.IS",
+    "AYDEM.IS", "AYEN.IS", "AYES.IS", "AYGAZ.IS", "AZTEK.IS", "BAGFS.IS", "BAKAB.IS", "BALAT.IS", "BANVT.IS", "BARMA.IS",
+    "BASCM.IS", "BASGZ.IS", "BAYRK.IS", "BEGYO.IS", "BERA.IS", "BEYAZ.IS", "BIENY.IS", "BIGCH.IS", "BIMAS.IS", "BINHO.IS",
+    "BIOEN.IS", "BIZIM.IS", "BJKAS.IS", "BLCYT.IS", "BMSCH.IS", "BMSTL.IS", "BNTAS.IS", "BOBET.IS", "BORLS.IS", "BOSSA.IS",
+    "BRISA.IS", "BRKO.IS", "BRKSN.IS", "BRLSM.IS", "BRMEN.IS", "BRYAT.IS", "BSOKE.IS", "BTCIM.IS", "BUCIM.IS", "BURCE.IS",
+    "BURVA.IS", "BVSAN.IS", "BYDNR.IS", "CANTE.IS", "CASFY.IS", "CCOLA.IS", "CELHA.IS", "CEMAS.IS", "CEMTS.IS", "CEOEM.IS",
+    "CGCAM.IS", "CIMSA.IS", "CLEBI.IS", "CMBTN.IS", "CMENT.IS", "CONSE.IS", "COSMO.IS", "CRDFA.IS", "CRFSA.IS", "CUSAN.IS",
+    "CVKMD.IS", "CWENE.IS", "CにいIS", "DAGI.IS", "DAPGM.IS", "DARDL.IS", "DENGE.IS", "DERHL.IS", "DERIM.IS", "DESA.IS",
+    "DESPC.IS", "DEVA.IS", "DIRIT.IS", "DITAS.IS", "DMRGD.IS", "DMSAS.IS", "DNISI.IS", "DOAS.IS", "DOBUR.IS", "DOCO.IS",
+    "DOGUB.IS", "DOHOL.IS", "DSTAN.IS", "DUNYA.IS", "DURDO.IS", "DYOBY.IS", "DZGYO.IS", "EBEBK.IS", "ECILC.IS", "ECZYT.IS",
+    "EDIP.IS", "EGEEN.IS", "EGEPO.IS", "EGGUB.IS", "EGPRO.IS", "EGSER.IS", "EKGYO.IS", "EKOS.IS", "EKSUN.IS", "ELITE.IS",
+    "EMKEL.IS", "ENERY.IS", "ENKAI.IS", "ENJSA.IS", "EPLAS.IS", "ERBOS.IS", "EREGL.IS", "ERSU.IS", "ESCAR.IS", "ESCOM.IS",
+    "ESEN.IS", "ETILR.IS", "EUHOL.IS", "EUKYO.IS", "EUPWR.IS", "EUREN.IS", "EUYO.IS", "EYGYO.IS", "FADE.IS", "FENER.IS",
+    "FLAP.IS", "FMIZP.IS", "FONET.IS", "FORMT.IS", "FRIGO.IS", "FROTO.IS", "GARAN.IS", "GARFA.IS", "GEDIK.IS", "GEDZA.IS",
+    "GENIL.IS", "GENTS.IS", "GEREL.IS", "GESAN.IS", "GLBMD.IS", "GLCVY.IS", "GLRYH.IS", "GLYHO.IS", "GMTAS.IS", "GOKNR.IS",
+    "GOLTS.IS", "GOODY.IS", "GOZDE.IS", "GRNYO.IS", "GRSEL.IS", "GTRGY.IS", "GUBRF.IS", "GWIND.IS", "GZNMI.IS", "HALKB.IS",
+    "HATEK.IS", "HATSN.IS", "HEDEF.IS", "HEKTS.IS", "HKTM.IS", "HLGYO.IS", "HTTBT.IS", "HUBVC.IS", "HURGZ.IS", "ICBCT.IS",
+    "IDEAS.IS", "IDGYO.IS", "IENTS.IS", "IHEVA.IS", "IHGZT.IS", "IHLAS.IS", "IHLGM.IS", "IMASM.IS", "INDES.IS", "INFO.IS",
+    "INGRM.IS", "INTEM.IS", "INVEO.IS", "INVES.IS", "IPEKE.IS", "ISATR.IS", "ISBIR.IS", "ISBTR.IS", "ISCEN.IS", "ISCTR.IS",
+    "ISFIN.IS", "ISGSY.IS", "ISGYO.IS", "ISKPL.IS", "ISKUR.IS", "ISMEN.IS", "ISSEN.IS", "IZENR.IS", "IZFAS.IS", "IZINV.IS",
+    "JANTS.IS", "KAPLM.IS", "KAREL.IS", "KARSN.IS", "KARTN.IS", "KARYE.IS", "KATMR.IS", "KAYSE.IS", "KBORU.IS", "KCAER.IS",
+    "KCHOL.IS", "KENT.IS", "KERVT.IS", "KFEIN.IS", "KGYO.IS", "KIMMR.IS", "KLGYO.IS", "KLKIM.IS", "KLRHO.IS", "KLMSN.IS",
+    "KLSER.IS", "KLSYN.IS", "KMPUR.IS", "KNFRT.IS", "kontr.IS", "KONYA.IS", "KOPOL.IS", "KORDS.IS", "KOTON.IS", "KOZAA.IS",
+    "KOZAL.IS", "KRDMD.IS", "KRGYO.IS", "KRONT.IS", "KRPLS.IS", "KRSTL.IS", "KRTEK.IS", "KZBGY.IS", "KZYGZ.IS", "LIDER.IS",
+    "LIDFA.IS", "LKMNH.IS", "LMKDC.IS", "LOGO.IS", "LUKSK.IS", "MAALT.IS", "MAKIM.IS", "MAKTK.IS", "MANAS.IS", "MARKA.IS",
+    "MARTI.IS", "MAVI.IS", "MEDTR.IS", "MEGAP.IS", "MEKAG.IS", "MEPET.IS", "MERCN.IS", "MERKO.IS", "METUR.IS", "MGROS.IS",
+    "MIATK.IS", "MMCAS.IS", "MNDRS.IS", "MNDTR.IS", "MOBTL.IS", "MPARK.IS", "MRGYO.IS", "	MTRKS.IS", "	MTRYO.IS", "	MZHLD.IS",
+    "NATEN.IS", "NETAS.IS", "NIBAS.IS", "NTHOL.IS", "NUGYO.IS", "NUHCM.IS", "OBAMS.IS", "OBASE.IS", "ODAS.IS", "OFSYM.IS",
+    "ONCSM.IS", "ORCAY.IS", "OYYAT.IS", "OZAKD.IS", "OZGYO.IS", "OZKGY.IS", "OZLTM.IS", "OZRDN.IS", "PAKRD.IS", "PAMEL.IS",
+    "PAPIL.IS", "PARSN.IS", "PASEU.IS", "PCILT.IS", "PEKGY.IS", "PENGD.IS", "PENTA.IS", "PETKM.IS", "PETUN.IS", "PGSUS.IS",
+    "PINSU.IS", "PKART.IS", "PKENT.IS", "PNSUT.IS", "POLHO.IS", "POLTK.IS", "PRDGS.IS", "PRKME.IS", "PRKAB.IS", "PSGYO.IS",
+    "QNBFB.IS", "QNBFL.IS", "QUAGR.IS", "RALYH.IS", "REEDR.IS", "RNPOL.IS", "RODRG.IS", "ROYAL.IS", "RTALB.IS", "RUBNS.IS",
+    "RYGYO.IS", "RYSAS.IS", "SAFKR.IS", "SAHOL.IS", "	SASA.IS", "	SAYAS.IS", "	SDTTR.IS", "	SEGFO.IS", "	SEGYO.IS",
+    "SEKFK.IS", "SEKUR.IS", "SELEC.IS", "SELVA.IS", "SEYKM.IS", "SILVR.IS", "SISE.IS", "SKBNK.IS", "SKTAS.IS", "SMART.IS",
+    "SMRTG.IS", "SNGYO.IS", "SNICA.IS", "SNPAM.IS", "SODSN.IS", "SOKM.IS", "SONME.IS", "SRVGY.IS", "SUMAS.IS", "SUNTK.IS",
+    "SUWEN.IS", "	TABGD.IS", "	TARKM.IS", "	TATEN.IS", "	TATGD.IS", "	TAVHL.IS", "	TBORG.IS", "	TCELL.IS", "	TCKRC.IS",
+    "TDGYO.IS", "TEKTU.IS", "TETMT.IS", "TEZOL.IS", "TGSAS.IS", "THYAO.IS", "	TKFEN.IS", "	TKNSA.IS", "	TMPOL.IS", "TMSN.IS",
+    "	TOASO.IS", "	TRCAS.IS", "	TRGYO.IS", "	TRMET.IS", "	TSKB.IS", "	TSPOR.IS", "	TTKOM.IS", "	TTRAK.IS", "	TUCLK.IS",
+    "	TUPRS.IS", "	Turek.IS", "	TURSG.IS", "	UFUK.IS", "	ULAS.IS", "	ULUFA.IS", "	ULKER.IS", "	ULUUN.IS", "	VAKBN.IS",
+    "	VAKFN.IS", "	VAKGY.IS", "	VBTYZ.IS", "	VERTU.IS", "	VERUS.IS", "	VESBE.IS", "	VESTL.IS", "	VKFYO.IS", "	VKGYO.IS",
+    "	VKING.IS", "	YAPRK.IS", "	YATAS.IS", "	YAYLA.IS", "	YBTAS.IS", "	YEOTK.IS", "	YESIL.IS", "	YGGYO.IS", "	YIGIT.IS",
+    "	YKBNK.IS", "	YKSL.IS", "	YUNSA.IS", "	YYAPI.IS", "	ZEDUR.IS", "	ZOREN.IS", "	ZRGYO.IS"
 ]
 
-bist_hisseleri = sorted(list(set(bist_hisseleri)))
-bulunan = 0
+PHONE = "905462848792"
+API_KEY = "3477940"
 
-print(f"🔍 Toplam {len(bist_hisseleri)} BIST hissesi MFI 65 ve MFI 70 için taranıyor...\n")
-
-for ticker in bist_hisseleri:
+def send_whatsapp(message):
+    url = f"https://api.callmebot.com/whatsapp.php?phone={PHONE}&text={requests.utils.quote(message)}&apikey={API_KEY}"
     try:
-        time.sleep(0.15)
-        df = yf.download(ticker, period="60d", interval="1h", progress=False)
-        if df.empty or len(df) < 25: 
+        res = requests.get(url, timeout=10)
+        print(f"WhatsApp Yanıtı: {res.status_code}")
+    except Exception as e:
+        print(f"Mesaj Hatası: {e}")
+
+def run_scanner():
+    print(f"BIST Geniş Tarama Başlatıldı... Toplam Hisse: {len(STOCKS)}")
+    matched = []
+
+    for ticker in STOCKS:
+        clean_ticker = ticker.strip()
+        try:
+            df = yf.download(clean_ticker, period="1mo", interval="4h", progress=False)
+            if df.empty or len(df) < 20:
+                continue
+
+            if isinstance(df.columns, pd.MultiIndex):
+                df.columns = df.columns.get_level_values(0)
+
+            close = df['Close']
+            high = df['High']
+            low = df['Low']
+            volume = df['Volume']
+
+            # RSI (14)
+            delta = close.diff()
+            gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+            rs = gain / loss
+            rsi = 100 - (100 / (1 + rs))
+
+            # MFI (14)
+            typical_price = (high + low + close) / 3
+            money_flow = typical_price * volume
+            positive_flow = money_flow.where(typical_price > typical_price.shift(1), 0).rolling(14).sum()
+            negative_flow = money_flow.where(typical_price < typical_price.shift(1), 0).rolling(14).sum()
+            mfi = 100 - (100 / (1 + (positive_flow / negative_flow)))
+
+            # CMF (20)
+            mf_multiplier = ((close - low) - (high - close)) / (high - low)
+            mf_volume = mf_multiplier * volume
+            cmf = mf_volume.rolling(20).sum() / volume.rolling(20).sum()
+
+            # +DI (14)
+            up_move = high.diff()
+            down_move = -low.diff()
+            plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0)
+            tr = pd.concat([high - low, (high - close.shift(1)).abs(), (low - close.shift(1)).abs()], axis=1).max(axis=1)
+            plus_di = 100 * (plus_dm.rolling(14).sum() / tr.rolling(14).sum())
+
+            # Son Değerler
+            mfi_curr = mfi.iloc[-1]
+            mfi_prev = mfi.iloc[-2]
+            rsi_curr = rsi.iloc[-1]
+            plus_di_curr = plus_di.iloc[-1]
+            cmf_curr = cmf.iloc[-1]
+
+            # Koşullar: MFI 70 yukarı kesişim, +DI > 40, RSI > 50, CMF > -0.20
+            if (mfi_prev < 70 and mfi_curr >= 70) and (plus_di_curr > 40) and (rsi_curr > 50) and (cmf_curr > -0.20):
+                matched.append(clean_ticker.replace(".IS", ""))
+
+        except Exception as e:
             continue
-        
-        df_4h = df.resample('4h').agg({
-            'Open': 'first', 'High': 'max', 'Low': 'min', 'Close': 'last', 'Volume': 'sum'
-        }).dropna()
 
-        if isinstance(df_4h.columns, pd.MultiIndex):
-            df_4h.columns = df_4h.columns.get_level_values(0)
+    if matched:
+        send_whatsapp(f"🚀 BIST Sinyal (Tümü): {', '.join(matched)}")
+    else:
+        print("Tüm hisseler tarandı, uyan hisse bulunamadı.")
 
-        if len(df_4h) < 20: 
-            continue
+if __name__ == "__main__":
+    run_scanner()
 
-        df_4h['CMF'] = ta.cmf(df_4h['High'], df_4h['Low'], df_4h['Close'], df_4h['Volume'], length=20)
-        df_4h['MFI'] = ta.mfi(df_4h['High'], df_4h['Low'], df_4h['Close'], df_4h['Volume'], length=14)
-        df_4h['RSI'] = ta.rsi(df_4h['Close'], length=14)
-        
-        dmi = ta.dmi(df_4h['High'], df_4h['Low'], df_4h['Close'], length=14)
-        df_4h['DMP'] = dmi['DMP_14']
-
-        dmp_bugun = df_4h['DMP'].iloc[-1]
-        rsi_bugun = df_4h['RSI'].iloc[-1]
-        cmf_bugun = df_4h['CMF'].iloc[-1]
-
-        mfi_onceki = df_4h['MFI'].iloc[-2]
-        mfi_bugun = df_4h['MFI'].iloc[-1]
-
-        # KESİŞİM ŞARTLARI
-        mfi_65_kesim = (mfi_onceki <= 65) and (mfi_bugun > 65)
-        mfi_70_kesim = (mfi_onceki <= 70) and (mfi_bugun > 70)
-
-        artida_dmi = dmp_bugun > 40
-        rsi_guclu = rsi_bugun > 50
-        cmf_filtre = cmf_bugun > -0.20
-
-        # Eğer diğer tüm kriterler sağlanıyorsa ve MFI 65 veya 70 kesilmişse:
-        if (mfi_65_kesim or mfi_70_kesim) and artida_dmi and rsi_guclu and cmf_filtre:
-            bulunan += 1
-            hisse_adi = ticker.replace(".IS", "")
-            
-            # Sinyal seviyesini belirleme
-            seviye = "MFI 70 (Güçlü)" if mfi_70_kesim else "MFI 65"
-            
-            bildirim = (
-                f"🚀 {seviye} YUKARI KESİM SİNYALİ!\n\n"
-                f"📈 Hisse: #{hisse_adi}\n"
-                f"⏰ Periyot: 4 Saatlik\n"
-                f"🔥 MFI Kesişimi: {mfi_onceki:.1f} ➔ {mfi_bugun:.1f}\n"
-                f"⚡ +DI: {dmp_bugun:.1f} (>40)\n"
-                f"📊 RSI: {rsi_bugun:.1f} (>50)\n"
-                f"💰 CMF: {cmf_bugun:.2f} (>-0.20)"
-            )
-            whatsapp_mesaj_gonder(bildirim)
-            print(f"✅ SİNYAL GÖNDERİLDİ ({seviye}): {hisse_adi}")
-
-    except Exception:
-        continue
-
-print("\n--- TARAMA TAMAMLANDI ---")
-if bulunan == 0:
-    print("❌ Belirlenen şartlara uyan hisse bulunamadı.")
