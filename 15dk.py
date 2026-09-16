@@ -7,13 +7,6 @@ from datetime import datetime
 import urllib.parse
 import pytz
 
-# Türkiye saatine göre saat kontrolü
-tr_tz = pytz.timezone('Europe/Istanbul')
-simdiki_saat = datetime.now(tr_tz).hour
-
-if simdiki_saat < 9 or simdiki_saat >= 19:
-    print("Mesai saatleri dışındayız (09:00 - 19:00 harici), 15dk tarama durduruldu.")
-    exit()
 def tum_bist_hisselerini_getir():
     # BIST'teki tüm ana ve alt pazardaki hisseleri kapsayan genişletilmiş liste (500+ Hisse)
     hisseler = [
