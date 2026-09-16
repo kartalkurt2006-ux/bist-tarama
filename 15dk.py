@@ -123,7 +123,7 @@ def tarayiciyi_calistir():
             cmf_curr = cmf.iloc[-1]
 
             # Koşullar:
-            kosul_plus_di = (plus_di_prev <= 40) and (plus_di_curr > 40)
+            kosul_plus_di = (plus_di_prev <= 25) and (plus_di_curr > 25)
             kosul_mfi = mfi_curr > 69
             kosul_hma = close_curr > hma_curr
             kosul_cmf = cmf_curr > 0
