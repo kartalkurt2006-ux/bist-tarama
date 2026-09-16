@@ -141,9 +141,10 @@ def tarayiciyi_calistir():
     else:
         print("Kriterlere uyan hisse bulunamadı.")
 
+
 def whatsapp_gonder(mesaj):
-    url = f"https://api.callmebot.com/whatsapp.php?phone=TELEFONUN&text={urllib.parse.quote(mesaj)}&apikey=APIKEYIN"
-    requests.get(url)
+  url = f"https://api.callmebot.com/whatsapp.php?phone=905462848792&text={urllib.parse.quote(mesaj)}&apikey=3477940"
+  requests.get(url)
 
 if __name__ == "__main__":
     tarayiciyi_calistir()
