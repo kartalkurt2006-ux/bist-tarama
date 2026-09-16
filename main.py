@@ -2,16 +2,7 @@ import requests
 import yfinance as yf
 import pandas as pd
 import time
-   from datetime import datetime
-import pytz
-
-# Türkiye saatine göre saat kontrolü
-tr_tz = pytz.timezone('Europe/Istanbul')
-simdiki_saat = datetime.now(tr_tz).hour
-
-if simdiki_saat < 9 or simdiki_saat >= 19:
-    print("Mesai saatleri dışındayız (09:00 - 19:00 harici), tarama durduruldu.")
-    exit()                    
+                      
 # BIST Tüm Hisseler (Yüzlerce hisse kapsayan kapsamlı liste)
 STOCKS = [
     "AAVST.IS", "ACSEL.IS", "ADEL.IS", "ADESE.IS", "ADGYO.IS", "AEFES.IS", "AFYON.IS", "AGESA.IS", "AGHOL.IS", "AGROT.IS",
