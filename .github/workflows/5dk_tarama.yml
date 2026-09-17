@@ -1,0 +1,27 @@
+name: 5 Dakikalik BIST Tarama
+
+on:
+  schedule:
+    # Hafta içi borsa saatlerinde (UTC 07:00 - 15:00 arası, yani Türkiye saati ile 10:00 - 18:00) her 5 dakikada bir çalışır
+    - cron: '*/5 7-15 * * 1-5'
+  workflow_dispatch: # İstersen GitHub'dan elinle "Run workflow" diyerek manuel test etmeni sağlar
+
+jobs:
+  run-5dk-scanner:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Kodlari Depodan Al
+        uses: actions/checkout@v3
+
+      - name: Python Ortamini Kur
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Gerekli Kutuphaneleri Yukle
+        run: |
+          pip install pandas numpy yfinance requests pytz
+
+      - name: 5 Dakikalik Taramayi Baslat
+        run: |
+          python bes_dakikalik_tarama.py
