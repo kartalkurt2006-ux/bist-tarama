@@ -11,7 +11,7 @@ import urllib.parse
 
 # --- AYARLAR VE SABİTLER ---
 MEMORY_FILE = "hafiza_5dk.json"
-COOLDOWN_SECONDS = 3600  # Aynı hisse için 1 saat (3600 saniye) bekleme süresi
+COOLDOWN_SECONDS = 3600  # Aynı hisse için 1 saat bekleme süresi
 TZ_TR = pytz.timezone("Europe/Istanbul")
 
 # WhatsApp (CallMeBot) Bilgileri
@@ -128,7 +128,6 @@ def dmi_hesapla(df, period=14):
     
     plus_dm = high.diff()
     minus_dm = low.diff()
-    
     plus_dm = np.where((plus_dm > minus_dm) & (plus_dm > 0), plus_dm, 0.0)
     
     tr1 = high - low
@@ -139,27 +138,6 @@ def dmi_hesapla(df, period=14):
     atr = tr.rolling(window=period).mean()
     plus_di = 100 * (pd.Series(plus_dm).rolling(window=period).mean() / (atr + 1e-10))
     return plus_di
-
-def stoch_rsi_hesapla(df, period=14):
-    close = df['Close']
-    delta = close.diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-    rs = gain / (loss + 1e-10)
-    rsi = 100 - (100 / (1 + rs))
-    
-    min_rsi = rsi.rolling(window=period).min()
-    max_rsi = rsi.rolling(window=period).max()
-    
-    stoch_rsi = (rsi - min_rsi) / (max_rsi - min_rsi + 1e-10)
-    stoch_hizli = stoch_rsi.rolling(window=3).mean() * 100
-    stoch_yavas = stoch_hizli.rolling(window=3).mean()
-    return stoch_hizli, stoch_yavas
-
-def ichimoku_conversion_line(df, period=9):
-    high_9 = df['High'].rolling(window=period).max()
-    low_9 = df['Low'].rolling(window=period).min()
-    return (high_9 + low_9) / 2
 
 def whatsapp_mesaj_gonder(mesaj):
     try:
@@ -200,10 +178,6 @@ def tarama_calistir():
             df['MFI'] = mfi_hesapla(df)
             df['CMF'] = cmf_hesapla(df)
             df['+DI'] = dmi_hesapla(df)
-            df['Stoch_Hizli'], df['Stoch_Yavas'] = stoch_rsi_hesapla(df)
-            df['Ichimoku_Tenkan'] = ichimoku_conversion_line(df)
-            df['Vol_10_Avg'] = df['Volume'].rolling(window=10).mean()
-            df['Yuzde_Degisim'] = df['Close'].pct_change()
 
             i = -1
             c_close = df['Close'].iloc[i]
@@ -215,35 +189,24 @@ def tarama_calistir():
             c_mfi = df['MFI'].iloc[i]
             c_cmf = df['CMF'].iloc[i]
             c_plus_di = df['+DI'].iloc[i]
-            c_stoch_hizli = df['Stoch_Hizli'].iloc[i]
-            c_stoch_yavas = df['Stoch_Yavas'].iloc[i]
-            c_vol = df['Volume'].iloc[i]
-            c_vol_avg = df['Vol_10_Avg'].iloc[i]
-            c_degisim = df['Yuzde_Degisim'].iloc[i]
             c_hma20 = df['HMA20'].iloc[i]
-            c_ichimoku = df['Ichimoku_Tenkan'].iloc[i]
 
-            # Koşullar
-            kosul_ema_kesisim = (p_ema5 <= p_ema9) and (c_ema5 > c_ema9)
-            kosul_mfi = c_mfi > 55
-            kosul_cmf = c_cmf > 0
-            kosul_plus_di = c_plus_di > 25
-            kosul_stoch = c_stoch_hizli > c_stoch_yavas
-            kosul_hacim = c_vol > c_vol_avg
-            kosul_degisim = c_degisim > 0.006  # %0.6 değişim
-            kosul_hma20 = c_close > c_hma20     # Fiyat > HMA20
-            kosul_ichimoku = c_close > c_ichimoku
+            # 5 KRİTER
+            kosul_hma20 = c_close > c_hma20                              # 1. Hull 20 fiyatın aşağısında
+            kosul_ema_kesisim = (p_ema5 <= p_ema9) and (c_ema5 > c_ema9)  # 2. EMA 5, EMA 9'u yukarı kessin
+            kosul_plus_di = c_plus_di > 25                              # 3. +DI > 25
+            kosul_mfi = c_mfi > 55                                      # 4. MFI > 55
+            kosul_cmf = c_cmf > 0                                       # 5. CMF > 0
 
-            if (kosul_ema_kesisim and kosul_mfi and kosul_cmf and kosul_plus_di and 
-                kosul_stoch and kosul_hacim and kosul_degisim and kosul_hma20 and kosul_ichimoku):
-                
+            if kosul_hma20 and kosul_ema_kesisim and kosul_plus_di and kosul_mfi and kosul_cmf:
                 son_gonderim = hafiza.get(hisse, 0)
                 if simdi_epoch - son_gonderim > COOLDOWN_SECONDS:
                     tetiklenenler.append({
                         'hisse': hisse,
                         'fiyat': c_close,
                         'mfi': c_mfi,
-                        'cmf': c_cmf
+                        'cmf': c_cmf,
+                        'plus_di': c_plus_di
                     })
                     hafiza[hisse] = simdi_epoch
                 else:
@@ -252,14 +215,15 @@ def tarama_calistir():
         except Exception as e:
             print(f"{hisse} taranırken hata: {e}")
 
-    # Eğer bu turda şartları sağlayan hisseler varsa hepsini tek raporda gönder
+    # Toplu rapor gönderimi (İstediğin gibi '5 DK' ibaresiyle)
     if tetiklenenler:
         hafiza_kaydet(hafiza)
         zaman_str = datetime.now(TZ_TR).strftime('%H:%M')
-        rapor_satirlari = [f"🚀 *BIST 5DK Sinyal Raporu* ({zaman_str})"]
+        rapor_satirlari = [f"🚀 *BIST Sinyal Raporu* ({zaman_str})"]
         
         for item in tetiklenenler:
-            satir = f"• *{item['hisse']}* | Fiyat: {item['fiyat']:.2f} | MFI: {item['mfi']:.1f} | CMF: {item['cmf']:.2f}"
+            temiz_isim = item['hisse'].replace('.IS', '')
+            satir = f"• **5 DK** | *{temiz_isim}* | Fiyat: {item['fiyat']:.2f} | MFI: {item['mfi']:.1f} | CMF: {item['cmf']:.2f}"
             rapor_satirlari.append(satir)
         
         toplam_mesaj = "\n".join(rapor_satirlari)
