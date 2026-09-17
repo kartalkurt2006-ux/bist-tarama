@@ -80,11 +80,12 @@ def hafiza_kaydet(hafiza):
 
 def piyasa_zaman_kontrolu():
     simdi = datetime.now(TZ_TR)
-    if simdi.weekday() >= 5:  # Hafta sonu
+    if simdi.weekday() >= 5:  # Hafta sonu (Cumartesi, Pazar)
         return False
         
-    baslangic = simdi.replace(hour=9, minute=0, second=0, microsecond=0)
-    bitis = simdi.replace(hour=19, minute=0, second=0, microsecond=0)
+    # Borsa İstanbul seans saatleri kontrolü (09:30 - 18:10 arası)
+    baslangic = simdi.replace(hour=9, minute=30, second=0, microsecond=0)
+    bitis = simdi.replace(hour=18, minute=10, second=0, microsecond=0)
     
     if baslangic <= simdi <= bitis:
         return True
@@ -144,7 +145,7 @@ def whatsapp_mesaj_gonder(mesaj):
         url = f"https://api.callmebot.com/whatsapp.php?phone={WHATSAPP_PHONE}&text={urllib.parse.quote(mesaj)}&apikey={WHATSAPP_APIKEY}"
         response = requests.get(url, timeout=15)
         if response.status_code == 200:
-            print("[WHATSAPP RAPORU BAŞARIYLA GÖNDERİLDİ]")
+            print("[WHATSAPP ANLIK MESAJ GÖNDERİLDİ]")
         else:
             print(f"[WHATSAPP HATA]: Kod {response.status_code}")
     except Exception as e:
@@ -152,15 +153,13 @@ def whatsapp_mesaj_gonder(mesaj):
 
 def tarama_calistir():
     if not piyasa_zaman_kontrolu():
-        print("Çalışma saatleri dışındayız veya hafta sonu. Tarama atlanıyor.")
+        print("Borsa seans saatleri dışındayız veya hafta sonu. Tarama atlanıyor.")
         return
 
     hafiza = hafiza_yukle()
     simdi_epoch = time.time()
     
-    print(f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] 5 Dakikalık Tarama Başlatıldı...")
-    
-    tetiklenenler = []
+    print(f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] 5 Dakikalık Anlık Tarama Başlatıldı...")
 
     for hisse in BIST_HISSELERI:
         try:
@@ -201,35 +200,23 @@ def tarama_calistir():
             if kosul_hma20 and kosul_ema_kesisim and kosul_plus_di and kosul_mfi and kosul_cmf:
                 son_gonderim = hafiza.get(hisse, 0)
                 if simdi_epoch - son_gonderim > COOLDOWN_SECONDS:
-                    tetiklenenler.append({
-                        'hisse': hisse,
-                        'fiyat': c_close,
-                        'mfi': c_mfi,
-                        'cmf': c_cmf,
-                        'plus_di': c_plus_di
-                    })
+                    # Anlık olarak mesajı hemen gönder
+                    zaman_str = datetime.now(TZ_TR).strftime('%H:%M')
+                    temiz_isim = hisse.replace('.IS', '')
+                    mesaj = f"🚀 *BIST Sinyal* ({zaman_str})\n• **5 DK** | *{temiz_isim}* | Fiyat: {c_close:.2f} | MFI: {c_mfi:.1f} | CMF: {c_cmf:.2f}"
+                    
+                    whatsapp_mesaj_gonder(mesaj)
+                    
+                    # Hafızayı hemen güncelle ve kaydet
                     hafiza[hisse] = simdi_epoch
+                    hafiza_kaydet(hafiza)
                 else:
-                    print(f"{hisse} için 1 saatlik cooldown aktif, rapora eklenmedi.")
+                    print(f"{hisse} için 1 saatlik cooldown aktif.")
 
         except Exception as e:
             print(f"{hisse} taranırken hata: {e}")
 
-    # Toplu rapor gönderimi (İstediğin gibi '5 DK' ibaresiyle)
-    if tetiklenenler:
-        hafiza_kaydet(hafiza)
-        zaman_str = datetime.now(TZ_TR).strftime('%H:%M')
-        rapor_satirlari = [f"🚀 *BIST Sinyal Raporu* ({zaman_str})"]
-        
-        for item in tetiklenenler:
-            temiz_isim = item['hisse'].replace('.IS', '')
-            satir = f"• **5 DK** | *{temiz_isim}* | Fiyat: {item['fiyat']:.2f} | MFI: {item['mfi']:.1f} | CMF: {item['cmf']:.2f}"
-            rapor_satirlari.append(satir)
-        
-        toplam_mesaj = "\n".join(rapor_satirlari)
-        whatsapp_mesaj_gonder(toplam_mesaj)
-    else:
-        print("Bu tarama turunda yeni sinyal bulunamadı.")
+    print("Tarama turu tamamlandı.")
 
 if __name__ == "__main__":
     tarama_calistir()
