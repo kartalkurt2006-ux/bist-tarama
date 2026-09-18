@@ -10,8 +10,8 @@ import pytz
 import urllib.parse
 
 # --- AYARLAR VE SABİTLER ---
-MEMORY_FILE = "hafiza_5dk.json"
-COOLDOWN_SECONDS = 3600  # Aynı hisse için 1 saat bekleme süresi
+MEMORY_FILE = "hafiza_15dk.json"
+COOLDOWN_SECONDS = 3600  # Aynı hisse için 1 saat (3600 saniye) boyunca tekrar mesaj atılmasını engeller
 TZ_TR = pytz.timezone("Europe/Istanbul")
 
 # WhatsApp (CallMeBot) Bilgileri
@@ -127,9 +127,10 @@ def dmi_hesapla(df, period=14):
     low = df['Low']
     close = df['Close']
     
-    plus_dm = high.diff()
-    minus_dm = low.diff()
-    plus_dm = np.where((plus_dm > minus_dm) & (plus_dm > 0), plus_dm, 0.0)
+    up_move = high.diff()
+    down_move = low.shift(1) - low
+    
+    plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
     
     tr1 = high - low
     tr2 = abs(high - close.shift(1))
@@ -137,7 +138,7 @@ def dmi_hesapla(df, period=14):
     tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
     
     atr = tr.rolling(window=period).mean()
-    plus_di = 100 * (pd.Series(plus_dm).rolling(window=period).mean() / (atr + 1e-10))
+    plus_di = 100 * (pd.Series(plus_dm, index=df.index).rolling(window=period).mean() / (atr + 1e-10))
     return plus_di
 
 def whatsapp_mesaj_gonder(mesaj):
@@ -159,20 +160,19 @@ def tarama_calistir():
     hafiza = hafiza_yukle()
     simdi_epoch = time.time()
     
-    print(f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] 5 Dakikalık Anlık Tarama Başlatıldı...")
+    print(f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] 15 Dakikalık Genişletilmiş Tarama Başlatıldı ({len(BIST_HISSELERI)} Hisse)...")
 
     for hisse in BIST_HISSELERI:
         try:
-            df = yf.download(hisse, period="5d", interval="5m", progress=False)
-            if df.empty or len(df) < 30:
+            # 15 Dakikalık periyot ve uygun veri aralığı
+            df = yf.download(hisse, period="30d", interval="15m", progress=False)
+            if df is None or df.empty or len(df) < 30:
                 continue
 
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
 
             # İndikatörler
-            df['EMA5'] = df['Close'].ewm(span=5, adjust=False).mean()
-            df['EMA9'] = df['Close'].ewm(span=9, adjust=False).mean()
             df['HMA20'] = calculate_hma(df['Close'], period=20)
             df['MFI'] = mfi_hesapla(df)
             df['CMF'] = cmf_hesapla(df)
@@ -180,41 +180,36 @@ def tarama_calistir():
 
             i = -1
             c_close = df['Close'].iloc[i]
-            c_ema5 = df['EMA5'].iloc[i]
-            c_ema9 = df['EMA9'].iloc[i]
-            p_ema5 = df['EMA5'].iloc[i-1]
-            p_ema9 = df['EMA9'].iloc[i-1]
-            
             c_mfi = df['MFI'].iloc[i]
             c_cmf = df['CMF'].iloc[i]
             c_plus_di = df['+DI'].iloc[i]
             c_hma20 = df['HMA20'].iloc[i]
 
-            # 5 KRİTER
-            kosul_hma20 = c_close > c_hma20                              # 1. Hull 20 fiyatın aşağısında
-            kosul_ema_kesisim = (p_ema5 <= p_ema9) and (c_ema5 > c_ema9)  # 2. EMA 5, EMA 9'u yukarı kessin
-            kosul_plus_di = c_plus_di > 25                              # 3. +DI > 25
-            kosul_mfi = c_mfi > 55                                      # 4. MFI > 55
-            kosul_cmf = c_cmf > 0                                       # 5. CMF > 0
+            # KRİTERLER (Kesişimsiz: Hull 20 fiyatın altında, +DI > 30, MFI > 70, CMF > 0)
+            kosul_hma20 = c_close > c_hma20                             
+            kosul_plus_di = c_plus_di > 30                              
+            kosul_mfi = c_mfi > 70                                      
+            kosul_cmf = c_cmf > 0                                       
 
-            if kosul_hma20 and kosul_ema_kesisim and kosul_plus_di and kosul_mfi and kosul_cmf:
+            if kosul_hma20 and kosul_plus_di and kosul_mfi and kosul_cmf:
                 son_gonderim = hafiza.get(hisse, 0)
                 if simdi_epoch - son_gonderim > COOLDOWN_SECONDS:
-                    # Anlık olarak mesajı hemen gönder
                     zaman_str = datetime.now(TZ_TR).strftime('%H:%M')
                     temiz_isim = hisse.replace('.IS', '')
-                    mesaj = f"🚀 *BIST Sinyal* ({zaman_str})\n• **5 DK** | *{temiz_isim}* | Fiyat: {c_close:.2f} | MFI: {c_mfi:.1f} | CMF: {c_cmf:.2f}"
+                    mesaj = f"🚀 *BIST 15DK Sinyal* ({zaman_str})\n• *{temiz_isim}* | Fiyat: {c_close:.2f} | MFI: {c_mfi:.1f} | CMF: {c_cmf:.2f} | +DI: {c_plus_di:.1f}"
                     
                     whatsapp_mesaj_gonder(mesaj)
                     
-                    # Hafızayı hemen güncelle ve kaydet
                     hafiza[hisse] = simdi_epoch
                     hafiza_kaydet(hafiza)
                 else:
-                    print(f"{hisse} için 1 saatlik cooldown aktif.")
+                    print(f"{hisse} için cooldown aktif.")
+
+            # Rate limit engellemek için mini bekleme
+            time.sleep(0.2)
 
         except Exception as e:
-            print(f"{hisse} taranırken hata: {e}")
+            continue
 
     print("Tarama turu tamamlandı.")
 
