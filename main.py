@@ -157,8 +157,8 @@ def run_scanner():
             plus_di_curr = plus_di.iloc[-1]
             cmf_curr = cmf.iloc[-1]
 
-            # Koşullar: MFI 65 yukarı kesişim, +DI > 30, RSI > 50, CMF > -0.20
-            if (mfi_prev < 65 and mfi_curr >= 65) and (plus_di_curr > 30) and (rsi_curr > 50) and (cmf_curr > -0.20):
+            # Koşullar: MFI 60 yukarı kesişim, +DI > 30, RSI > 50, CMF > -0.20
+            if (mfi_prev < 60 and mfi_curr >= 60) and (plus_di_curr > 30) and (rsi_curr > 50) and (cmf_curr > -0.20):
                 son_gonderim = hafiza.get(clean_ticker, 0)
                 if simdi_epoch - son_gonderim > COOLDOWN_SECONDS:
                     temiz_isim = clean_ticker.replace(".IS", "")
