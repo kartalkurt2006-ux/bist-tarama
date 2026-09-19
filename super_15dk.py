@@ -417,7 +417,7 @@ BIST_HISSELERI = [
 ]
 
 
-# --- HAFIZA VE SEANS KONTROLÜ ---
+# --- HAFIZA VE SEANS KONTROLü ---
 def hafiza_yukle():
   if os.path.exists(MEMORY_FILE):
     try:
@@ -530,11 +530,21 @@ def whatsapp_mesaj_gonder(mesaj):
 
 # --- ANA TARAMA FONKSİYONU ---
 def super_15dk_taramasi():
-  if not piyasa_zaman_kontrolu():
+  # Manuel tetikleme (workflow_dispatch) durumunda seans saatine takılma!
+  github_event = os.environ.get("GITHUB_EVENT_NAME", "")
+
+  if github_event != "workflow_dispatch" and not piyasa_zaman_kontrolu():
     print(
-        "Borsa seans saatleri dışındayız veya hafta sonu. Tarama atlanıyor."
+        "Borsa seans saatleri dışındayız veya hafta sonu (Otomatik Çalışma)."
+        " Tarama atlanıyor."
     )
     return
+
+  if github_event == "workflow_dispatch":
+    print(
+        "🚀 Manuel tetikleme algılandı: Seans saati kontrolü es geçilerek tarama"
+        " başlatılıyor!"
+    )
 
   hafiza = hafiza_yukle()
   simdi_epoch = time.time()
