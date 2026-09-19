@@ -4,3 +4,4 @@ numpy
 yfinance
 pytz
 requests
+gunicorn
