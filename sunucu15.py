@@ -532,7 +532,7 @@ def whatsapp_mesaj_gonder(mesaj):
         response = requests.get(url, timeout=15)
         if response.status_code == 200:
             print("[WHATSAPP ANLIK MESAJ GÖNDERİLDİ]")
-            time.sleep(5)  # Spam koruması için 5 saniye bekleme
+            time.sleep(10)  # Spam koruması için 10 saniye bekleme
         else:
             print(f"[WHATSAPP HATA]: Kod {response.status_code}")
     except Exception as e:
