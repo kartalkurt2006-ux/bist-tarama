@@ -532,7 +532,7 @@ def hesapla_dmi(df, period=14):
 # --- WHATSAPP MESAJ GÖNDERME ---
 def whatsapp_mesaj_gonder(mesaj):
   try:
-    url = f"https://api.Callmebot.com/whatsapp.php?phone={WHATSAPP_PHONE}&text={urllib.parse.quote(mesaj)}&apikey={WHATSAPP_APIKEY}"
+    url = f"https://api.callmebot.com/whatsapp.php?phone={WHATSAPP_PHONE}&text={urllib.parse.quote(mesaj)}&apikey={WHATSAPP_APIKEY}"
     response = requests.get(url, timeout=15)
     if response.status_code == 200:
       print("[WHATSAPP ANLIK MESAJ GÖNDERİLDİ]")
@@ -544,11 +544,8 @@ def whatsapp_mesaj_gonder(mesaj):
 
 # --- ANA TARAMA FONKSİYONU ---
 def super_15dk_taramasi():
-  if not piyasa_zaman_kontrolu():
-    print(
-        "Borsa seans saatleri dışındayız veya hafta sonu. Tarama atlanıyor."
-    )
-    return
+  # Web/Render üzerinden manuel tetiklendiği için seans saati kontrolü es geçiliyor
+  print("🚀 Manuel/Web tetiklemesi algılandı: Tarama başlatılıyor!")
 
   hafiza = hafiza_yukle()
   simdi_epoch = time.time()
