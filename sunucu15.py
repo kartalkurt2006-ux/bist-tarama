@@ -17,6 +17,9 @@ HAFIZA_DOSYASI = "hafiza_sunucu15.json"
 COOLDOWN_SURESI_SAAT = 1  # Aynı hisse için tekrar bildirim aralığı
 TZ_TR = pytz.timezone("Europe/Istanbul")
 
+# Çakışmayı önlemek için İşlem Kilidi (Lock)
+tarama_kilit = threading.Lock()
+
 # BIST TÜM HİSSELER LİSTESİ (Eksiksiz Tam Liste)
 BIST_HISSELERI = [
     "AAVST.IS",
@@ -542,59 +545,67 @@ def indikatorleri_hesapla(df):
 
 
 def piyasalari_tara():
-  simdi = datetime.now(TZ_TR)
-  print(f"Tarama başladı: {simdi}")
-  hafiza = hafizayi_oku()
+  # Aynı anda birden fazla tarama çalışmasını kesin olarak kilitler
+  if not tarama_kilit.acquire(blocking=False):
+    print("Zaten devam eden bir tarama var, bu istek atlandı.")
+    return
 
-  for hisse in BIST_HISSELERI:
-    try:
-      df = yf.download(hisse, period="5d", interval="15m", progress=False)
-      if df.empty or len(df) < 30:
+  try:
+    simdi = datetime.now(TZ_TR)
+    print(f"Tarama başladı: {simdi}")
+    hafiza = hafizayi_oku()
+
+    for hisse in BIST_HISSELERI:
+      try:
+        df = yf.download(hisse, period="5d", interval="15m", progress=False)
+        if df.empty or len(df) < 30:
+          continue
+
+        if isinstance(df.columns, pd.MultiIndex):
+          df.columns = df.columns.get_level_values(0)
+
+        df = indikatorleri_hesapla(df)
+        son = df.iloc[-1]
+
+        fiyat = float(son["Close"])
+        mfi = float(son["MFI"])
+        rsi = float(son["RSI"])
+        cmf = float(son["CMF"])
+        plus_di = float(son["+DI"])
+
+        kosul = (mfi > 70) and (rsi > 50) and (cmf > 0) and (plus_di > 30)
+
+        if kosul:
+          hisse_adi = hisse.replace(".IS", "")
+
+          son_gonderim_zamanı = hafiza.get(hisse_adi)
+          gonderebilir = True
+          if son_gonderim_zamanı:
+            gecen_sure = simdi - datetime.fromisoformat(son_gonderim_zamanı)
+            if gecen_sure < timedelta(hours=COOLDOWN_SURESI_SAAT):
+              gonderebilir = False
+
+          if gonderebilir:
+            mesaj = (
+                f"Saat: {simdi.strftime('%H:%M')}\n"
+                f"Fiyat: {fiyat:.2f}\n"
+                f"MFI: {mfi:.1f} | RSI: {rsi:.1f}\n"
+                f"CMF: {cmf:.2f} | +DI: {plus_di:.1f}"
+            )
+            baslik = f"🚀 Süper 15dk Sinyali: {hisse_adi}"
+            bildirim_gonder(mesaj, baslik)
+
+            hafiza[hisse_adi] = simdi.isoformat()
+            hafizaya_kaydet(hafiza)
+
+            time.sleep(0.2)
+
+      except Exception as e:
         continue
 
-      if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-
-      df = indikatorleri_hesapla(df)
-      son = df.iloc[-1]
-
-      fiyat = float(son["Close"])
-      mfi = float(son["MFI"])
-      rsi = float(son["RSI"])
-      cmf = float(son["CMF"])
-      plus_di = float(son["+DI"])
-
-      kosul = (mfi > 70) and (rsi > 50) and (cmf > 0) and (plus_di > 30)
-
-      if kosul:
-        hisse_adi = hisse.replace(".IS", "")
-
-        son_gonderim_zamanı = hafiza.get(hisse_adi)
-        gonderebilir = True
-        if son_gonderim_zamanı:
-          gecen_sure = simdi - datetime.fromisoformat(son_gonderim_zamanı)
-          if gecen_sure < timedelta(hours=COOLDOWN_SURESI_SAAT):
-            gonderebilir = False
-
-        if gonderebilir:
-          mesaj = (
-              f"Saat: {simdi.strftime('%H:%M')}\n"
-              f"Fiyat: {fiyat:.2f}\n"
-              f"MFI: {mfi:.1f} | RSI: {rsi:.1f}\n"
-              f"CMF: {cmf:.2f} | +DI: {plus_di:.1f}"
-          )
-          baslik = f"🚀 Süper 15dk Sinyali: {hisse_adi}"
-          bildirim_gonder(mesaj, baslik)
-
-          hafiza[hisse_adi] = simdi.isoformat()
-          hafizaya_kaydet(hafiza)
-
-          time.sleep(0.2)
-
-    except Exception as e:
-      continue
-
-  print(f"Tarama bitti: {datetime.now(TZ_TR)}")
+    print(f"Tarama bitti: {datetime.now(TZ_TR)}")
+  finally:
+    tarama_kilit.release()
 
 
 def arka_plan_dongusu():
