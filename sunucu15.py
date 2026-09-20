@@ -5,6 +5,7 @@ import threading
 import time
 import urllib.request
 import pandas as pd
+import pytz
 import yfinance as yf
 from flask import Flask
 
@@ -14,6 +15,7 @@ app = Flask(__name__)
 NTFY_TOPIC = "borsa_senet"
 HAFIZA_DOSYASI = "hafiza_sunucu15.json"
 COOLDOWN_SURESI_SAAT = 1  # Aynı hisse için tekrar bildirim aralığı
+TZ_TR = pytz.timezone("Europe/Istanbul")
 
 # BIST TÜM HİSSELER LİSTESİ (Eksiksiz Tam Liste)
 BIST_HISSELERI = [
@@ -506,21 +508,18 @@ def bildirim_gonder(mesaj, baslik="Borsa Sinyali"):
 
 
 def indikatorleri_hesapla(df):
-  # MFI (Money Flow Index)
   delta = df["Close"].diff()
   gain = (delta.where(delta > 0, 0) * df["Volume"]).rolling(14).sum()
   loss = (-delta.where(delta < 0, 0) * df["Volume"]).rolling(14).sum()
   rs = gain / loss
   df["MFI"] = 100 - (100 / (1 + rs))
 
-  # RSI
   delta_rsi = df["Close"].diff()
   gain_rsi = delta_rsi.where(delta_rsi > 0, 0).rolling(14).mean()
   loss_rsi = (-delta_rsi.where(delta_rsi < 0, 0)).rolling(14).mean()
   rs_rsi = gain_rsi / loss_rsi
   df["RSI"] = 100 - (100 / (1 + rs_rsi))
 
-  # CMF (Chaikin Money Flow)
   mf_multiplier = (
       (df["Close"] - df["Low"]) - (df["High"] - df["Close"])
   ) / (df["High"] - df["Low"])
@@ -528,7 +527,6 @@ def indikatorleri_hesapla(df):
   mf_volume = mf_multiplier * df["Volume"]
   df["CMF"] = mf_volume.rolling(20).sum() / df["Volume"].rolling(20).sum()
 
-  # +DI (Directional Movement Index parçası)
   high_diff = df["High"].diff()
   low_diff = -df["Low"].diff()
   plus_dm = high_diff.where((high_diff > low_diff) & (high_diff > 0), 0)
@@ -544,9 +542,9 @@ def indikatorleri_hesapla(df):
 
 
 def piyasalari_tara():
-  print(f"Tarama başladı: {datetime.now()}")
+  simdi = datetime.now(TZ_TR)
+  print(f"Tarama başladı: {simdi}")
   hafiza = hafizayi_oku()
-  simdi = datetime.now()
 
   for hisse in BIST_HISSELERI:
     try:
@@ -566,13 +564,11 @@ def piyasalari_tara():
       cmf = float(son["CMF"])
       plus_di = float(son["+DI"])
 
-      # Sinyal Koşulları (İlk sürümündeki hassas filtre yapın)
       kosul = (mfi > 70) and (rsi > 50) and (cmf > 0) and (plus_di > 30)
 
       if kosul:
         hisse_adi = hisse.replace(".IS", "")
 
-        # Cooldown (Tekrar Gönderim Süresi) Kontrolü
         son_gonderim_zamanı = hafiza.get(hisse_adi)
         gonderebilir = True
         if son_gonderim_zamanı:
@@ -598,7 +594,7 @@ def piyasalari_tara():
     except Exception as e:
       continue
 
-  print(f"Tarama bitti: {datetime.now()}")
+  print(f"Tarama bitti: {datetime.now(TZ_TR)}")
 
 
 def arka_plan_dongusu():
