@@ -1,8 +1,8 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 import json
 import os
 import threading
-import time
+import time as t_mod
 import urllib.request
 import pandas as pd
 import pytz
@@ -544,15 +544,28 @@ def indikatorleri_hesapla(df):
   return df
 
 
-def piyasalari_tara():
-  # Aynı anda birden fazla tarama çalışmasını kesin olarak kilitler
+def piyasalari_tara(manuel_tetikleme=False):
   if not tarama_kilit.acquire(blocking=False):
     print("Zaten devam eden bir tarama var, bu istek atlandı.")
     return
 
   try:
     simdi = datetime.now(TZ_TR)
-    print(f"Tarama başladı: {simdi}")
+
+    # Eğer el ile tetiklenmediyse zaman ve gün kontrollerini uygula
+    if not manuel_tetikleme:
+      # Haftasonu kontrolü (5 = Cumartesi, 6 = Pazar)
+      if simdi.weekday() >= 5:
+        print(f"Hafta sonu olduğu için otomatik tarama atlandı: {simdi}")
+        return
+
+      # Saat aralığı kontrolü (09:00 - 19:30 arası)
+      anlik_zaman = simdi.time()
+      if not (time(9, 0) <= anlik_zaman <= time(19, 30)):
+        print(f"Çalışma saatleri dışındayız (09:00 - 19:30): {simdi}")
+        return
+
+    print(f"Tarama başladı (Manuel: {manuel_tetikleme}): {simdi}")
     hafiza = hafizayi_oku()
 
     for hisse in BIST_HISSELERI:
@@ -598,7 +611,7 @@ def piyasalari_tara():
             hafiza[hisse_adi] = simdi.isoformat()
             hafizaya_kaydet(hafiza)
 
-            time.sleep(0.2)
+            t_mod.sleep(0.2)
 
       except Exception as e:
         continue
@@ -610,14 +623,22 @@ def piyasalari_tara():
 
 def arka_plan_dongusu():
   while True:
-    piyasalari_tara()
-    time.sleep(900)
+    piyasalari_tara(manuel_tetikleme=False)
+    t_mod.sleep(900)  # 15 dakikada bir kontrol eder
 
 
 @app.route("/")
 def ana_sayfa():
-  threading.Thread(target=piyasalari_tara).start()
   return "BIST 15DK Sinyal Sunucusu Aktif ve Çalışıyor!"
+
+
+@app.route("/tara")
+def manuel_tara():
+  # İstediğin zaman tarayıcıya /tara yazarak manuel başlatabilirsin
+  threading.Thread(
+      target=piyasalari_tara, kwargs={"manuel_tetikleme": True}
+  ).start()
+  return "Manuel tarama başarıyla başlatıldı! Sinyaller ntfy'a gelecektir."
 
 
 if __name__ == "__main__":
