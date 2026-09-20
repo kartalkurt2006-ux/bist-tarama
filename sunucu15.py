@@ -527,15 +527,16 @@ def hesapla_dmi(df, period=14):
 
 # --- WHATSAPP MESAJ GÖNDERME ---
 def whatsapp_mesaj_gonder(mesaj):
-  try:
-    url = f"https://api.callmebot.com/whatsapp.php?phone={WHATSAPP_PHONE}&text={urllib.parse.quote(mesaj)}&apikey={WHATSAPP_APIKEY}"
-    response = requests.get(url, timeout=15)
-    if response.status_code == 200:
-      print("[WHATSAPP ANLIK MESAJ GÖNDERİLDİ]")
-    else:
-      print(f"[WHATSAPP HATA]: Kod {response.status_code}")
-  except Exception as e:
-    print(f"[WHATSAPP BAĞLANTI HATASI]: {e}")
+    try:
+        url = f"https://api.callmebot.com/whatsapp.php?phone={WHATSAPP_PHONE}&text={urllib.parse.quote(mesaj)}&apikey={WHATSAPP_APIKEY}"
+        response = requests.get(url, timeout=15)
+        if response.status_code == 200:
+            print("[WHATSAPP ANLIK MESAJ GÖNDERİLDİ]")
+            time.sleep(2)  # Spam koruması için 2 saniye bekleme
+        else:
+            print(f"[WHATSAPP HATA]: Kod {response.status_code}")
+    except Exception as e:
+        print(f"[WHATSAPP BAĞLANTI HATASI]: {e}")
 
 
 # --- ANA TARAMA FONKSİYONU ---
