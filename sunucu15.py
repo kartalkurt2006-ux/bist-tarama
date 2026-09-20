@@ -1,45 +1,21 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
-import math
 import os
 import threading
 import time
-from flask import Flask, jsonify
-import numpy as np
+import urllib.request
 import pandas as pd
-import pytz
-import requests
 import yfinance as yf
+from flask import Flask
 
-# --- FLASK WEB SUNUCUSU ---
 app = Flask(__name__)
 
-
-@app.route("/")
-def index():
-  try:
-    # Timeout (zaman aşımı) hatasını önlemek için taramayı arka planda (thread) başlatıyoruz
-    t = threading.Thread(target=super_15dk_taramasi)
-    t.start()
-    return (
-        "Süper 15 taraması arka planda başarıyla başlatıldı! Hisseler taranıyor"
-        " 🚀",
-        200,
-    )
-  except Exception as e:
-    return f"Tarama başlatılırken hata oluştu: {e}", 500
-
-
-# --- AYARLAR VE SABİTLER ---
-MEMORY_FILE = "hafiza_sunucu15.json"
-COOLDOWN_SECONDS = 3600  # Aynı hisse için 1 saat içinde tekrar bildirim gitmesin
-TZ_TR = pytz.timezone("Europe/Istanbul")
-
-# ntfy.sh Bildirim Ayarları (Resimdeki konuya göre güncellendi)
+# Ayarlar
 NTFY_TOPIC = "borsa_senet"
+HAFIZA_DOSYASI = "hafiza_sunucu15.json"
+COOLDOWN_SURESI_SAAT = 1  # Aynı hisse için tekrar bildirim aralığı
 
-
-# --- BIST TÜM HİSSELER (DÜZENLİ LİSTE) ---
+# BIST TÜM HİSSELER LİSTESİ (Eksiksiz Tam Liste)
 BIST_HISSELERI = [
     "AAVST.IS",
     "ACSEL.IS",
@@ -493,181 +469,153 @@ BIST_HISSELERI = [
 ]
 
 
-# --- HAFIZA VE SEANS KONTROLÜ ---
-def hafiza_yukle():
-  if os.path.exists(MEMORY_FILE):
+def hafizayi_oku():
+  if os.path.exists(HAFIZA_DOSYASI):
     try:
-      with open(MEMORY_FILE, "r") as f:
+      with open(HAFIZA_DOSYASI, "r", encoding="utf-8") as f:
         return json.load(f)
     except:
       return {}
   return {}
 
 
-def hafiza_kaydet(hafiza):
-  with open(MEMORY_FILE, "w") as f:
-    json.dump(hafiza, f)
+def hafizaya_kaydet(hafiza):
+  try:
+    with open(HAFIZA_DOSYASI, "w", encoding="utf-8") as f:
+      json.dump(hafiza, f, ensure_ascii=False, indent=4)
+  except Exception as e:
+    print(f"Hafıza kayıt hatası: {e}")
 
 
-# --- İNDİKATÖR FONKSİYONLARI ---
-def weighted_moving_average(series, period):
-  weights = np.arange(1, period + 1)
-  return series.rolling(period).apply(
-      lambda x: np.dot(x, weights) / weights.sum(), raw=True
-  )
-
-
-def hesapla_hma(df, period=20):
-  half_period = int(period / 2)
-  sqrt_period = int(math.sqrt(period))
-  wma_half = weighted_moving_average(df["Close"], half_period)
-  wma_full = weighted_moving_average(df["Close"], period)
-  raw_hma = 2 * wma_half - wma_full
-  return weighted_moving_average(raw_hma, sqrt_period)
-
-
-def hesapla_mfi(df, period=14):
-  tp = (df["High"] + df["Low"] + df["Close"]) / 3
-  rmf = tp * df["Volume"]
-  tp_diff = tp.diff()
-  pos_flow = np.where(tp_diff > 0, rmf, 0.0)
-  neg_flow = np.where(tp_diff < 0, rmf, 0.0)
-  pos_flow_s = pd.Series(pos_flow, index=df.index)
-  neg_flow_s = pd.Series(neg_flow, index=df.index)
-  pos_sma = pos_flow_s.ewm(alpha=1 / period, adjust=False).mean()
-  neg_sma = neg_flow_s.ewm(alpha=1 / period, adjust=False).mean()
-  money_ratio = pos_sma / neg_sma
-  return 100 - (100 / (1 + money_ratio))
-
-
-def hesapla_rsi(df, period=14):
-  delta = df["Close"].diff()
-  gain = np.where(delta > 0, delta, 0.0)
-  loss = np.where(delta < 0, -delta, 0.0)
-  gain_s = pd.Series(gain, index=df.index)
-  loss_s = pd.Series(loss, index=df.index)
-  avg_gain = gain_s.ewm(alpha=1 / period, adjust=False).mean()
-  avg_loss = loss_s.ewm(alpha=1 / period, adjust=False).mean()
-  rs = avg_gain / avg_loss
-  return 100 - (100 / (1 + rs))
-
-
-def hesapla_cmf(df, period=20):
-  high, low, close, volume = df["High"], df["Low"], df["Close"], df["Volume"]
-  mf_multiplier = ((close - low) - (high - close)) / (high - low)
-  mf_multiplier = mf_multiplier.fillna(0)
-  mf_volume = mf_multiplier * volume
-  return mf_volume.rolling(window=period).sum() / volume.rolling(
-      window=period
-  ).sum()
-
-
-def hesapla_dmi(df, period=14):
-  high, low, close = df["High"], df["Low"], df["Close"]
-  high_low = high - low
-  high_close = np.abs(high - close.shift(1))
-  low_close = np.abs(low - close.shift(1))
-  tr = pd.concat([high_low, high_close, low_close], axis=1).max(axis=1)
-
-  plus_dm = high.diff()
-  minus_dm = low.shift(1) - low
-  plus_dm = np.where((plus_dm > minus_dm) & (plus_dm > 0), plus_dm, 0.0)
-  minus_dm = np.where((minus_dm > plus_dm) & (minus_dm > 0), minus_dm, 0.0)
-
-  plus_dm_s = pd.Series(plus_dm, index=df.index)
-  plus_smoothed = plus_dm_s.ewm(alpha=1 / period, adjust=False).mean()
-  tr_smoothed = tr.ewm(alpha=1 / period, adjust=False).mean()
-
-  plus_di = 100 * (plus_smoothed / tr_smoothed)
-  return plus_di
-
-
-# --- NTFY BİLDİRİM GÖNDERME ---
-def ntfy_mesaj_gonder(baslik, mesaj):
+def bildirim_gonder(mesaj, baslik="Borsa Sinyali"):
   try:
     url = f"https://ntfy.sh/{NTFY_TOPIC}"
-    headers = {
-        "Title": baslik.encode("utf-8"),
-        "Priority": "default",
-        "Tags": "chart_with_upwards_trend,rotating_light",
-    }
-    response = requests.post(
-        url, data=mesaj.encode("utf-8"), headers=headers, timeout=15
+    data = mesaj.encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={
+            "Title": baslik.encode("utf-8"),
+            "Priority": "urgent",
+            "Tags": "chart_with_upwards_trend,rotating_light,rocket",
+        },
     )
-    if response.status_code == 200:
-      print("[NTFY BİLDİRİMİ GÖNDERİLDİ]")
-      time.sleep(2)
-    else:
-      print(f"[NTFY HATA]: Kod {response.status_code}")
+    urllib.request.urlopen(req)
   except Exception as e:
-    print(f"[NTFY BAĞLANTI HATASI]: {e}")
+    print(f"Bildirim hatası: {e}")
 
 
-# --- ANA TARAMA FONKSİYONU ---
-def super_15dk_taramasi():
-  print("🚀 Arka plan taraması başlatıldı...")
+def indikatorleri_hesapla(df):
+  # MFI (Money Flow Index)
+  delta = df["Close"].diff()
+  gain = (delta.where(delta > 0, 0) * df["Volume"]).rolling(14).sum()
+  loss = (-delta.where(delta < 0, 0) * df["Volume"]).rolling(14).sum()
+  rs = gain / loss
+  df["MFI"] = 100 - (100 / (1 + rs))
 
-  hafiza = hafiza_yukle()
-  simdi_epoch = time.time()
-  print(
-      f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] Süper 15 dk"
-      f" Taraması İşleniyor ({len(BIST_HISSELERI)} Hisse)..."
-  )
+  # RSI
+  delta_rsi = df["Close"].diff()
+  gain_rsi = delta_rsi.where(delta_rsi > 0, 0).rolling(14).mean()
+  loss_rsi = (-delta_rsi.where(delta_rsi < 0, 0)).rolling(14).mean()
+  rs_rsi = gain_rsi / loss_rsi
+  df["RSI"] = 100 - (100 / (1 + rs_rsi))
+
+  # CMF (Chaikin Money Flow)
+  mf_multiplier = (
+      (df["Close"] - df["Low"]) - (df["High"] - df["Close"])
+  ) / (df["High"] - df["Low"])
+  mf_multiplier = mf_multiplier.fillna(0)
+  mf_volume = mf_multiplier * df["Volume"]
+  df["CMF"] = mf_volume.rolling(20).sum() / df["Volume"].rolling(20).sum()
+
+  # +DI (Directional Movement Index parçası)
+  high_diff = df["High"].diff()
+  low_diff = -df["Low"].diff()
+  plus_dm = high_diff.where((high_diff > low_diff) & (high_diff > 0), 0)
+  tr1 = df["High"] - df["Low"]
+  tr2 = (df["High"] - df["Close"].shift()).abs()
+  tr3 = (df["Low"] - df["Close"].shift()).abs()
+  tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+  atr = tr.rolling(14).mean()
+  plus_di = 100 * (plus_dm.rolling(14).mean() / atr)
+  df["+DI"] = plus_di
+
+  return df
+
+
+def piyasalari_tara():
+  print(f"Tarama başladı: {datetime.now()}")
+  hafiza = hafizayi_oku()
+  simdi = datetime.now()
 
   for hisse in BIST_HISSELERI:
     try:
-      df = yf.download(hisse, period="30d", interval="15m", progress=False)
-      if df is None or df.empty or len(df) < 30:
+      df = yf.download(hisse, period="5d", interval="15m", progress=False)
+      if df.empty or len(df) < 30:
         continue
 
       if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
-      # İndikatör Hesaplamaları
-      hma20 = hesapla_hma(df, period=20)
-      mfi = hesapla_mfi(df, period=14)
-      rsi = hesapla_rsi(df, period=14)
-      cmf = hesapla_cmf(df, period=20)
-      plus_di = hesapla_dmi(df, period=14)
+      df = indikatorleri_hesapla(df)
+      son = df.iloc[-1]
 
-      c_close = df["Close"].iloc[-1]
-      c_hma20 = hma20.iloc[-1]
-      c_mfi = mfi.iloc[-1]
-      c_rsi = rsi.iloc[-1]
-      c_cmf = cmf.iloc[-1]
-      c_plus_di = plus_di.iloc[-1]
+      fiyat = float(son["Close"])
+      mfi = float(son["MFI"])
+      rsi = float(son["RSI"])
+      cmf = float(son["CMF"])
+      plus_di = float(son["+DI"])
 
-      # Filtre Koşulları
-      kosul_hma = c_close > c_hma20
-      kosul_mfi = c_mfi > 70
-      kosul_rsi = c_rsi > 50
-      kosul_cmf = c_cmf > 0
-      kosul_pdi = c_plus_di > 30
+      # Sinyal Koşulları (İlk sürümündeki hassas filtre yapın)
+      kosul = (mfi > 70) and (rsi > 50) and (cmf > 0) and (plus_di > 30)
 
-      if kosul_hma and kosul_mfi and kosul_rsi and kosul_cmf and kosul_pdi:
-        son_gonderim = hafiza.get(hisse, 0)
-        if simdi_epoch - son_gonderim > COOLDOWN_SECONDS:
-          zaman_str = datetime.now(TZ_TR).strftime("%H:%M")
-          temiz_isim = hisse.replace(".IS", "")
+      if kosul:
+        hisse_adi = hisse.replace(".IS", "")
 
-          baslik = f"🚀 Süper 15dk Sinyali: {temiz_isim}"
+        # Cooldown (Tekrar Gönderim Süresi) Kontrolü
+        son_gonderim_zamanı = hafiza.get(hisse_adi)
+        gonderebilir = True
+        if son_gonderim_zamanı:
+          gecen_sure = simdi - datetime.fromisoformat(son_gonderim_zamanı)
+          if gecen_sure < timedelta(hours=COOLDOWN_SURESI_SAAT):
+            gonderebilir = False
+
+        if gonderebilir:
           mesaj = (
-              f"Saat: {zaman_str}\nFiyat: {c_close:.2f}\nMFI: {c_mfi:.1f} | RSI:"
-              f" {c_rsi:.1f}\nCMF: {c_cmf:.2f} | +DI: {c_plus_di:.1f}"
+              f"Saat: {simdi.strftime('%H:%M')}\n"
+              f"Fiyat: {fiyat:.2f}\n"
+              f"MFI: {mfi:.1f} | RSI: {rsi:.1f}\n"
+              f"CMF: {cmf:.2f} | +DI: {plus_di:.1f}"
           )
+          baslik = f"🚀 Süper 15dk Sinyali: {hisse_adi}"
+          bildirim_gonder(mesaj, baslik)
 
-          ntfy_mesaj_gonder(baslik, mesaj)
-          hafiza[hisse] = simdi_epoch
-          hafiza_kaydet(hafiza)
+          hafiza[hisse_adi] = simdi.isoformat()
+          hafizaya_kaydet(hafiza)
 
-      time.sleep(0.2)
+          time.sleep(0.2)
 
     except Exception as e:
       continue
 
-  print("Tarama turu başarıyla tamamlandı.")
+  print(f"Tarama bitti: {datetime.now()}")
+
+
+def arka_plan_dongusu():
+  while True:
+    piyasalari_tara()
+    time.sleep(900)
+
+
+@app.route("/")
+def ana_sayfa():
+  threading.Thread(target=piyasalari_tara).start()
+  return "BIST 15DK Sinyal Sunucusu Aktif ve Çalışıyor!"
 
 
 if __name__ == "__main__":
-  port = int(os.environ.get("PORT", 5000))
-  app.run(host="0.0.0.0", port=port)
+  t = threading.Thread(target=arka_plan_dongusu)
+  t.daemon = True
+  t.start()
+
+  app.run(host="0.0.0.0", port=5000)
