@@ -2,6 +2,7 @@ from datetime import datetime
 import json
 import math
 import os
+import threading
 import time
 from flask import Flask, jsonify
 import numpy as np
@@ -11,31 +12,35 @@ import requests
 import urllib.parse
 import yfinance as yf
 
-# --- FLASK WEB SUNUCUSU (Render'ın dışarıdan tetiklemesi için) ---
+# --- FLASK WEB SUNUCUSU ---
 app = Flask(__name__)
 
 
 @app.route("/")
 def index():
   try:
-    super_15dk_taramasi()
-    return "Süper 15 taraması başarıyla çalıştırıldı ve tamamlandı! 🚀", 200
+    # Timeout (zaman aşımı) hatasını önlemek için taramayı arka planda (thread) başlatıyoruz
+    t = threading.Thread(target=super_15dk_taramasi)
+    t.start()
+    return (
+        "Süper 15 taraması arka planda başarıyla başlatıldı! Hisseler taranıyor"
+        " 🚀",
+        200,
+    )
   except Exception as e:
-    return f"Tarama sırasında hata oluştu: {e}", 500
+    return f"Tarama başlatılırken hata oluştu: {e}", 500
 
 
 # --- AYARLAR VE SABİTLER ---
 MEMORY_FILE = "hafiza_sunucu15.json"
-COOLDOWN_SECONDS = (
-    3600  # Aynı hisse için 1 saat (3600 saniye) boyunca tekrar mesaj engeli
-)
+COOLDOWN_SECONDS = 3600  # Aynı hisse için 1 saat içinde tekrar mesaj atılmasın
 TZ_TR = pytz.timezone("Europe/Istanbul")
 
-# WhatsApp (CallMeBot) Gerçek Bilgilerin
+# WhatsApp (CallMeBot) Bilgileri
 WHATSAPP_PHONE = "905462848792"
 WHATSAPP_APIKEY = "3477940"
 
-# --- TÜM BİST HİSSELERİNİN KAPSAMLI LİSTESİ ---
+# --- TÜM BİST HİSSELERİNİN LİSTESİ ---
 BIST_HISSELERI = [
     "ACSEL.IS",
     "ADEL.IS",
@@ -431,7 +436,7 @@ BIST_HISSELERI = [
 ]
 
 
-# --- HAFIZA VE SEANS KONTROLü ---
+# --- HAFIZA VE SEANS KONTROLÜ ---
 def hafiza_yukle():
   if os.path.exists(MEMORY_FILE):
     try:
@@ -447,16 +452,7 @@ def hafiza_kaydet(hafiza):
     json.dump(hafiza, f)
 
 
-def piyasa_zaman_kontrolu():
-  simdi = datetime.now(TZ_TR)
-  if simdi.weekday() >= 5:  # Hafta sonu
-    return False
-  baslangic = simdi.replace(hour=9, minute=30, second=0, microsecond=0)
-  bitis = simdi.replace(hour=18, minute=10, second=0, microsecond=0)
-  return baslangic <= simdi <= bitis
-
-
-# --- TRADINGVIEW UYUMLU ÖZEL İNDİKATÖR FONKSİYONLARI ---
+# --- İNDİKATÖR FONKSİYONLARI ---
 def weighted_moving_average(series, period):
   weights = np.arange(1, period + 1)
   return series.rolling(period).apply(
@@ -544,14 +540,13 @@ def whatsapp_mesaj_gonder(mesaj):
 
 # --- ANA TARAMA FONKSİYONU ---
 def super_15dk_taramasi():
-  # Web/Render üzerinden manuel tetiklendiği için seans saati kontrolü es geçiliyor
-  print("🚀 Manuel/Web tetiklemesi algılandı: Tarama başlatılıyor!")
+  print("🚀 Arka plan taraması başlatıldı...")
 
   hafiza = hafiza_yukle()
   simdi_epoch = time.time()
   print(
       f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] Süper 15 dk"
-      f" Taraması Başlatıldı ({len(BIST_HISSELERI)} Hisse)..."
+      f" Taraması İşleniyor ({len(BIST_HISSELERI)} Hisse)..."
   )
 
   for hisse in BIST_HISSELERI:
@@ -577,7 +572,7 @@ def super_15dk_taramasi():
       c_cmf = cmf.iloc[-1]
       c_plus_di = plus_di.iloc[-1]
 
-      # Filtre Koşulları: Fiyat > HMA20, MFI > 70, RSI > 50, CMF > 0, +DI > 30
+      # Filtre Koşulları
       kosul_hma = c_close > c_hma20
       kosul_mfi = c_mfi > 70
       kosul_rsi = c_rsi > 50
@@ -596,18 +591,15 @@ def super_15dk_taramasi():
           )
 
           whatsapp_mesaj_gonder(mesaj)
-
           hafiza[hisse] = simdi_epoch
           hafiza_kaydet(hafiza)
-        else:
-          print(f"{hisse} için 1 saatlik cooldown aktif, mesaj atılmadı.")
 
       time.sleep(0.2)
 
     except Exception as e:
       continue
 
-  print("Tarama turu tamamlandı.")
+  print("Tarama turu başarıyla tamamlandı.")
 
 
 if __name__ == "__main__":
