@@ -13,8 +13,8 @@ MEMORY_FILE = "hafiza_4h.json"
 COOLDOWN_SECONDS = 3600  # Aynı hisse için 1 saat bekleme süresi
 TZ_TR = pytz.timezone("Europe/Istanbul")
 
-PHONE = "905462848792"
-API_KEY = "3477940"
+# Ntfy Kanal Ayarı
+NTFY_URL = "https://ntfy.sh/borsa_senet"
 
 # BIST Tüm Hisseler (Temizlenmiş Liste)
 STOCKS = [
@@ -91,13 +91,16 @@ def piyasa_zaman_kontrolu():
         return True
     return False
 
-def send_whatsapp(message):
-    url = f"https://api.callmebot.com/whatsapp.php?phone={PHONE}&text={urllib.parse.quote(message)}&apikey={API_KEY}"
+def send_ntfy(message):
     try:
-        res = requests.get(url, timeout=10)
-        print(f"WhatsApp Yanıtı: {res.status_code}")
+        headers = {
+            "Title": "BIST 4 Saatlik Sinyal",
+            "Priority": "high"
+        }
+        res = requests.post(NTFY_URL, data=message.encode('utf-8'), headers=headers, timeout=10)
+        print(f"Ntfy Yanıtı: {res.status_code}")
     except Exception as e:
-        print(f"Mesaj Hatası: {e}")
+        print(f"Ntfy Mesaj Hatası: {e}")
 
 def run_scanner():
     if not piyasa_zaman_kontrolu():
@@ -165,7 +168,7 @@ def run_scanner():
                     zaman_str = datetime.now(TZ_TR).strftime('%H:%M')
                     mesaj = f"🚀 *BIST 4 Saatlik Sinyal* ({zaman_str})\n• Hisse: *{temiz_isim}* | Fiyat: {close.iloc[-1]:.2f} | MFI: {mfi_curr:.1f} | CMF: {cmf_curr:.2f}"
                     
-                    send_whatsapp(mesaj)
+                    send_ntfy(mesaj)
                     
                     hafiza[clean_ticker] = simdi_epoch
                     hafiza_kaydet(hafiza)
