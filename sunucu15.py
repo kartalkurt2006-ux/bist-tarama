@@ -13,14 +13,14 @@ app = Flask(__name__)
 
 # Ayarlar
 NTFY_TOPIC = "borsa_senet"
-HAFIZA_DOSYASI = "hafiza_sunucu15.json"
+HAFIZA_DOSYASI = "hafiza_sunucu1s.json"
 COOLDOWN_SURESI_SAAT = 1  # Aynı hisse için tekrar bildirim aralığı
 TZ_TR = pytz.timezone("Europe/Istanbul")
 
 # Çakışmayı önlemek için İşlem Kilidi (Lock)
 tarama_kilit = threading.Lock()
 
-# BIST TÜM HİSSELER LİSTESİ (Eksiksiz Tam Liste)
+# BIST TÜM HİSSELER LİSTESİ
 BIST_HISSELERI = [
     "AAVST.IS",
     "ACSEL.IS",
@@ -530,7 +530,7 @@ def indikatorleri_hesapla(df):
   mf_volume = mf_multiplier * df["Volume"]
   df["CMF"] = mf_volume.rolling(20).sum() / df["Volume"].rolling(20).sum()
 
-  # Yönlü Hareket (DMI / +DI / -DI hesaplaması)
+  # Yönlü Hareket (+DI ve -DI hesaplaması)
   high_diff = df["High"].diff()
   low_diff = -df["Low"].diff()
   plus_dm = high_diff.where((high_diff > low_diff) & (high_diff > 0), 0)
@@ -556,25 +556,23 @@ def piyasalari_tara(manuel_tetikleme=False):
   try:
     simdi = datetime.now(TZ_TR)
 
-    # Eğer el ile tetiklenmediyse zaman ve gün kontrollerini uygula
     if not manuel_tetikleme:
-      # Haftasonu kontrolü (5 = Cumartesi, 6 = Pazar)
       if simdi.weekday() >= 5:
         print(f"Hafta sonu olduğu için otomatik tarama atlandı: {simdi}")
         return
 
-      # Saat aralığı kontrolü (09:00 - 19:30 arası)
       anlik_zaman = simdi.time()
       if not (time(9, 0) <= anlik_zaman <= time(19, 30)):
         print(f"Çalışma saatleri dışındayız (09:00 - 19:30): {simdi}")
         return
 
-    print(f"Tarama başladı (Manuel: {manuel_tetikleme}): {simdi}")
+    print(f"1 Saatlik Veri Taraması Başladı (Manuel: {manuel_tetikleme}): {simdi}")
     hafiza = hafizayi_oku()
 
     for hisse in BIST_HISSELERI:
       try:
-        df = yf.download(hisse, period="5d", interval="15m", progress=False)
+        # 1 saatlik mum verisi çekiliyor
+        df = yf.download(hisse, period="1mo", interval="1h", progress=False)
         if df.empty or len(df) < 35:
           continue
 
@@ -583,7 +581,6 @@ def piyasalari_tara(manuel_tetikleme=False):
 
         df = indikatorleri_hesapla(df)
 
-        # Son mum ve bir önceki mum değerlerini alıyoruz (Kesişim kontrolü için)
         son = df.iloc[-1]
         onceki = df.iloc[-2]
 
@@ -593,16 +590,17 @@ def piyasalari_tara(manuel_tetikleme=False):
         cmf = float(son["CMF"])
         plus_di = float(son["+DI"])
 
-        # YENİ ŞARTLAR:
-        # 1. MFI > 70, RSI > 50, CMF > 0 (Eski şartlar)
-        # 2. +DI > 20 şartı
-        # 3. +DI'nin -DI'yi yukarı yönlü kesmesi (Önceki mumda +DI <= -DI iken, son mumda +DI > -DI olması)
-        kosul_temel = (mfi > 70) and (rsi > 50) and (cmf > 0) and (plus_di > 20)
-        kosul_kesisim = (onceki["+DI"] <= onceki["-DI"]) and (
-            son["+DI"] > son["-DI"]
+        # ŞARTLAR:
+        # 1. MFI >= 60 (Para akışı 60 ve üzerinde)
+        # 2. RSI > 50
+        # 3. CMF > 0
+        # 4. +DI > 30 (Kesişim yok, doğrudan seviye şartı)
+        mfi_kosulu = mfi >= 60
+        kosul_temel = (
+            mfi_kosulu and (rsi > 50) and (cmf > 0) and (plus_di > 30)
         )
 
-        if kosul_temel and kosul_kesisim:
+        if kosul_temel:
           hisse_adi = hisse.replace(".IS", "")
 
           son_gonderim_zamanı = hafiza.get(hisse_adi)
@@ -619,7 +617,7 @@ def piyasalari_tara(manuel_tetikleme=False):
                 f"MFI: {mfi:.1f} | RSI: {rsi:.1f}\n"
                 f"CMF: {cmf:.2f} | +DI: {plus_di:.1f}"
             )
-            baslik = f"🚀 +DI Kesişim Sinyali: {hisse_adi}"
+            baslik = f"🚀 1S Güçlü Sinyal: {hisse_adi}"
             bildirim_gonder(mesaj, baslik)
 
             hafiza[hisse_adi] = simdi.isoformat()
@@ -638,12 +636,12 @@ def piyasalari_tara(manuel_tetikleme=False):
 def arka_plan_dongusu():
   while True:
     piyasalari_tara(manuel_tetikleme=False)
-    t_mod.sleep(900)  # 15 dakikada bir kontrol eder
+    t_mod.sleep(900)  # 15 dakikada bir kontrol eder (900 saniye)
 
 
 @app.route("/")
 def ana_sayfa():
-  return "BIST 15DK Sinyal Sunucusu Aktif ve Çalışıyor!"
+  return "BIST 1S (15dk Döngülü) Sinyal Sunucusu Aktif ve Çalışıyor!"
 
 
 @app.route("/tara")
@@ -651,7 +649,7 @@ def manuel_tara():
   threading.Thread(
       target=piyasalari_tara, kwargs={"manuel_tetikleme": True}
   ).start()
-  return "Manuel tarama başarıyla başlatıldı! Sinyaller ntfy'a gelecektir."
+  return "Manuel tarama başlatıldı! Sinyaller ntfy'a gelecektir."
 
 
 if __name__ == "__main__":
