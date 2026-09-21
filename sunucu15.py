@@ -530,16 +530,20 @@ def indikatorleri_hesapla(df):
   mf_volume = mf_multiplier * df["Volume"]
   df["CMF"] = mf_volume.rolling(20).sum() / df["Volume"].rolling(20).sum()
 
+  # Yönlü Hareket (DMI / +DI / -DI hesaplaması)
   high_diff = df["High"].diff()
   low_diff = -df["Low"].diff()
   plus_dm = high_diff.where((high_diff > low_diff) & (high_diff > 0), 0)
+  minus_dm = low_diff.where((low_diff > high_diff) & (low_diff > 0), 0)
+
   tr1 = df["High"] - df["Low"]
   tr2 = (df["High"] - df["Close"].shift()).abs()
   tr3 = (df["Low"] - df["Close"].shift()).abs()
   tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
   atr = tr.rolling(14).mean()
-  plus_di = 100 * (plus_dm.rolling(14).mean() / atr)
-  df["+DI"] = plus_di
+
+  df["+DI"] = 100 * (plus_dm.rolling(14).mean() / atr)
+  df["-DI"] = 100 * (minus_dm.rolling(14).mean() / atr)
 
   return df
 
@@ -571,14 +575,17 @@ def piyasalari_tara(manuel_tetikleme=False):
     for hisse in BIST_HISSELERI:
       try:
         df = yf.download(hisse, period="5d", interval="15m", progress=False)
-        if df.empty or len(df) < 30:
+        if df.empty or len(df) < 35:
           continue
 
         if isinstance(df.columns, pd.MultiIndex):
           df.columns = df.columns.get_level_values(0)
 
         df = indikatorleri_hesapla(df)
+
+        # Son mum ve bir önceki mum değerlerini alıyoruz (Kesişim kontrolü için)
         son = df.iloc[-1]
+        onceki = df.iloc[-2]
 
         fiyat = float(son["Close"])
         mfi = float(son["MFI"])
@@ -586,9 +593,16 @@ def piyasalari_tara(manuel_tetikleme=False):
         cmf = float(son["CMF"])
         plus_di = float(son["+DI"])
 
-        kosul = (mfi > 70) and (rsi > 50) and (cmf > 0) and (plus_di > 30)
+        # YENİ ŞARTLAR:
+        # 1. MFI > 70, RSI > 50, CMF > 0 (Eski şartlar)
+        # 2. +DI > 20 şartı
+        # 3. +DI'nin -DI'yi yukarı yönlü kesmesi (Önceki mumda +DI <= -DI iken, son mumda +DI > -DI olması)
+        kosul_temel = (mfi > 70) and (rsi > 50) and (cmf > 0) and (plus_di > 20)
+        kosul_kesisim = (onceki["+DI"] <= onceki["-DI"]) and (
+            son["+DI"] > son["-DI"]
+        )
 
-        if kosul:
+        if kosul_temel and kosul_kesisim:
           hisse_adi = hisse.replace(".IS", "")
 
           son_gonderim_zamanı = hafiza.get(hisse_adi)
@@ -605,7 +619,7 @@ def piyasalari_tara(manuel_tetikleme=False):
                 f"MFI: {mfi:.1f} | RSI: {rsi:.1f}\n"
                 f"CMF: {cmf:.2f} | +DI: {plus_di:.1f}"
             )
-            baslik = f"🚀 Süper 15dk Sinyali: {hisse_adi}"
+            baslik = f"🚀 +DI Kesişim Sinyali: {hisse_adi}"
             bildirim_gonder(mesaj, baslik)
 
             hafiza[hisse_adi] = simdi.isoformat()
@@ -634,7 +648,6 @@ def ana_sayfa():
 
 @app.route("/tara")
 def manuel_tara():
-  # İstediğin zaman tarayıcıya /tara yazarak manuel başlatabilirsin
   threading.Thread(
       target=piyasalari_tara, kwargs={"manuel_tetikleme": True}
   ).start()
