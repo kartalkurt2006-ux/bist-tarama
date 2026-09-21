@@ -9,14 +9,14 @@ import pytz
 import urllib.parse
 
 # --- AYARLAR VE SABİTLER ---
-MEMORY_FILE = "hafiza_4h.json"
+MEMORY_FILE = "hafiza_1s.json"  # 1 saatlik periyot için güncellendi
 COOLDOWN_SECONDS = 3600  # Aynı hisse için 1 saat bekleme süresi
 TZ_TR = pytz.timezone("Europe/Istanbul")
 
 # Ntfy Kanal Ayarı
 NTFY_URL = "https://ntfy.sh/borsa_senet"
 
-# BIST Tüm Hisseler (Temizlenmiş Liste)
+# BIST Tüm Hisseler (Tam Liste Korundu)
 STOCKS = [
     "AAVST.IS", "ACSEL.IS", "ADEL.IS", "ADESE.IS", "ADGYO.IS", "AEFES.IS", "AFYON.IS", "AGESA.IS", "AGHOL.IS", "AGROT.IS",
     "AKBNK.IS", "AKENR.IS", "AKFGY.IS", "AKFYE.IS", "AKGRT.IS", "AKMGY.IS", "AKSA.IS", "AKSEN.IS", "AKSGY.IS", "ALARK.IS",
@@ -94,13 +94,28 @@ def piyasa_zaman_kontrolu():
 def send_ntfy(message):
     try:
         headers = {
-            "Title": "BIST 4 Saatlik Sinyal",
+            "Title": "BIST 1 Saatlik Pro Sinyal",
             "Priority": "high"
         }
         res = requests.post(NTFY_URL, data=message.encode('utf-8'), headers=headers, timeout=10)
         print(f"Ntfy Yanıtı: {res.status_code}")
     except Exception as e:
         print(f"Ntfy Mesaj Hatası: {e}")
+
+def hesapla_td_sequential(close):
+    """Tom DeMark Sequential (9'lu Dip Kurulumu) Kontrolü"""
+    if len(close) < 15:
+        return False
+    # TD Setup Buy: Kapanış 4 bar önceki kapanıştan küçükse sayım yapılır
+    diff_val = close < close.shift(4)
+    count = 0
+    for val in diff_val.tail(12):
+        if val:
+            count += 1
+        else:
+            count = 0
+    # Son barlarda 9'luk dip sayımı tamamlanmış veya dip sürecinden yeni çıkıyor olmalı
+    return count >= 9 or (diff_val.iloc[-1] == False and count >= 7)
 
 def run_scanner():
     if not piyasa_zaman_kontrolu():
@@ -110,13 +125,14 @@ def run_scanner():
     hafiza = hafiza_yukle()
     simdi_epoch = time.time()
     
-    print(f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] BIST 4 Saatlik Tarama Başlatıldı... Toplam Hisse: {len(STOCKS)}")
+    print(f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] BIST 1 Saatlik Pro Tarama Başlatıldı... Toplam Hisse: {len(STOCKS)}")
 
     for ticker in STOCKS:
         clean_ticker = ticker.strip()
         try:
-            df = yf.download(clean_ticker, period="1mo", interval="4h", progress=False)
-            if df.empty or len(df) < 20:
+            # 1 Saatlik veri çekme (2mo süreyle yeterli veri derinliği)
+            df = yf.download(clean_ticker, period="2mo", interval="1h", progress=False)
+            if df.empty or len(df) < 30:
                 continue
 
             if isinstance(df.columns, pd.MultiIndex):
@@ -127,46 +143,63 @@ def run_scanner():
             low = df['Low']
             volume = df['Volume']
 
-            # RSI (14)
-            delta = close.diff()
-            gain = (delta.where(delta > 0, 0)).rolling(14).mean()
-            loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-            rs = gain / (loss + 1e-10)
-            rsi = 100 - (100 / (1 + rs))
+            # 1. TD Sequential Dip Teyidi
+            td_dip_ok = hesapla_td_sequential(close)
+            if not td_dip_ok:
+                continue
 
-            # MFI (14) - Güvenli Bölme
+            # 2. MFI (14) - Para Girişi (Eşik: 55)
             typical_price = (high + low + close) / 3
             money_flow = typical_price * volume
             positive_flow = money_flow.where(typical_price > typical_price.shift(1), 0).rolling(14).sum()
             negative_flow = money_flow.where(typical_price < typical_price.shift(1), 0).rolling(14).sum()
             mfi = 100 - (100 / (1 + (positive_flow / (negative_flow + 1e-10))))
+            mfi_curr = mfi.iloc[-1]
 
-            # CMF (20) - Güvenli Payda
+            # 3. CMF (20) - Net Para Akışı
             mf_multiplier = ((close - low) - (high - close)) / ((high - low) + 1e-10)
             mf_volume = mf_multiplier * volume
             cmf = mf_volume.rolling(20).sum() / (volume.rolling(20).sum() + 1e-10)
+            cmf_curr = cmf.iloc[-1]
 
-            # +DI (14)
+            # 4. +DI (14) - Yön Gücü
             up_move = high.diff()
             down_move = -low.diff()
             plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0)
             tr = pd.concat([high - low, (high - close.shift(1)).abs(), (low - close.shift(1)).abs()], axis=1).max(axis=1)
             plus_di = 100 * (plus_dm.rolling(14).sum() / (tr.rolling(14).sum() + 1e-10))
-
-            # Son Değerler
-            mfi_curr = mfi.iloc[-1]
-            mfi_prev = mfi.iloc[-2]
-            rsi_curr = rsi.iloc[-1]
             plus_di_curr = plus_di.iloc[-1]
-            cmf_curr = cmf.iloc[-1]
 
-            # Koşullar: MFI 60 yukarı kesişim, +DI > 30, RSI > 50, CMF > -0.20
-            if (mfi_prev < 60 and mfi_curr >= 60) and (plus_di_curr > 30) and (rsi_curr > 50) and (cmf_curr > -0.20):
+            # 5. Hacim Patlaması (Volume Spike >= 1.5x ortalama)
+            vol_ma = volume.rolling(20).mean()
+            vol_curr = volume.iloc[-1]
+            vol_avg = vol_ma.iloc[-1] + 1e-10
+            hacim_patlamasi = (vol_curr >= 1.5 * vol_avg)
+
+            # 6. Fiyat Değişim Yüzdesi (Son barda en az %1.5 artış)
+            fiyat_degisim = (close.iloc[-1] - close.iloc[-2]) / close.iloc[-2] * 100
+
+            # --- TÜM FİLTRELERİN BİRLEŞİMİ (CONFLUENCE) ---
+            if td_dip_ok and (mfi_curr >= 55) and (cmf_curr > -0.10) and (plus_di_curr > 25) and hacim_patlamasi and (fiyat_degisim >= 1.0):
                 son_gonderim = hafiza.get(clean_ticker, 0)
                 if simdi_epoch - son_gonderim > COOLDOWN_SECONDS:
                     temiz_isim = clean_ticker.replace(".IS", "")
                     zaman_str = datetime.now(TZ_TR).strftime('%H:%M')
-                    mesaj = f"🚀 *BIST 4 Saatlik Sinyal* ({zaman_str})\n• Hisse: *{temiz_isim}* | Fiyat: {close.iloc[-1]:.2f} | MFI: {mfi_curr:.1f} | CMF: {cmf_curr:.2f}"
+                    guncel_fiyat = close.iloc[-1]
+                    
+                    # Dalga Marjı / Hedef Kademeleri Hesaplama (Matematiksel Grid)
+                    hedef_1 = guncel_fiyat * 1.025
+                    hedef_2 = guncel_fiyat * 1.050
+                    hedef_3 = guncel_fiyat * 1.075
+
+                    mesaj = (
+                        f"🚀 *BIST 1 Saatlik Pro Sinyal* ({zaman_str})\n"
+                        f"• Hisse: *{temiz_isim}* | Fiyat: {guncel_fiyat:.2f} TL\n"
+                        f"• MFI: {mfi_curr:.1f} | CMF: {cmf_curr:.2f} | +DI: {plus_di_curr:.1f}\n"
+                        f"• Hacim Artışı: {vol_curr/vol_avg:.1f}x | Mum Değişim: %{fiyat_degisim:.1f}\n"
+                        f"🎯 *Olası Dalga Hedefleri:*\n"
+                        f"  1. Dalga: {hedef_1:.2f} | 2. Dalga: {hedef_2:.2f} | 3. Dalga: {hedef_3:.2f}"
+                    )
                     
                     send_ntfy(mesaj)
                     
@@ -178,7 +211,7 @@ def run_scanner():
         except Exception as e:
             continue
 
-    print("4 Saatlik Tarama Turu Tamamlandı.")
+    print("1 Saatlik Pro Tarama Turu Tamamlandı.")
 
 if __name__ == "__main__":
     run_scanner()
