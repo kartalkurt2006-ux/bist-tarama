@@ -4,6 +4,7 @@ import os
 import time
 import urllib.parse
 import urllib.request
+import numpy as np
 import pandas as pd
 import pytz
 import requests
@@ -21,19 +22,19 @@ TIMEFRAMES = [
         "period": "15m",
         "label": "15 Dakikalık",
         "memory": "hafiza_15m.json",
-        "ozel_kural": True,  # 15dk için özel kurallar aktif
+        "kural_tipi": "15m",
     },
     {
         "period": "1h",
         "label": "1 Saatlik",
         "memory": "hafiza_1h.json",
-        "ozel_kural": False,
+        "kural_tipi": "1h_gorsel",
     },
     {
         "period": "4h",
         "label": "4 Saatlik",
         "memory": "hafiza_4h.json",
-        "ozel_kural": False,
+        "kural_tipi": "4h",
     },
 ]
 
@@ -491,6 +492,23 @@ STOCKS = [
 ]
 
 
+def calculate_hma(series, period=9):
+  half_per = period // 2
+  sqrt_per = int(np.sqrt(period))
+
+  def wma(s, p):
+    weights = np.arange(1, p + 1)
+    return s.rolling(p).apply(
+        lambda x: np.dot(x, weights) / weights.sum(), raw=True
+    )
+
+  wma_half = wma(series, half_per)
+  wma_full = wma(series, period)
+  raw_hma = 2 * wma_half - wma_full
+  hma = wma(raw_hma, sqrt_per)
+  return hma
+
+
 def hafiza_yukle(dosya_adi):
   if os.path.exists(dosya_adi):
     try:
@@ -538,14 +556,14 @@ def run_scanner():
   simdi_epoch = time.time()
   print(
       f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] Çoklu Periyot"
-      f" (15m, 1h, 4h) BIST Taraması Başlatıldı..."
+      f" Taraması Başlatıldı..."
   )
 
   for tf in TIMEFRAMES:
     period = tf["period"]
     label = tf["label"]
     mem_file = tf["memory"]
-    ozel_kural = tf["ozel_kural"]
+    kural_tipi = tf["kural_tipi"]
 
     hafiza = hafiza_yukle(mem_file)
     print(
@@ -557,9 +575,9 @@ def run_scanner():
       clean_ticker = ticker.strip()
       try:
         df = yf.download(
-            clean_ticker, period="5d", interval=period, progress=False
+            clean_ticker, period="1mo", interval=period, progress=False
         )
-        if df.empty or len(df) < 20:
+        if df.empty or len(df) < 25:
           continue
 
         if isinstance(df.columns, pd.MultiIndex):
@@ -570,14 +588,14 @@ def run_scanner():
         low = df["Low"]
         volume = df["Volume"]
 
-        # RSI (14)
+        hma9 = calculate_hma(close, 9)
+
         delta = close.diff()
         gain = (delta.where(delta > 0, 0)).rolling(14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
         rs = gain / (loss + 1e-10)
         rsi = 100 - (100 / (1 + rs))
 
-        # MFI (14)
         typical_price = (high + low + close) / 3
         money_flow = typical_price * volume
         positive_flow = (
@@ -594,14 +612,12 @@ def run_scanner():
             100 / (1 + (positive_flow / (negative_flow + 1e-10)))
         )
 
-        # CMF (20)
         mf_multiplier = ((close - low) - (high - close)) / (
             (high - low) + 1e-10
         )
         mf_volume = mf_multiplier * volume
         cmf = mf_volume.rolling(20).sum() / (volume.rolling(20).sum() + 1e-10)
 
-        # +DI (14)
         up_move = high.diff()
         down_move = -low.diff()
         plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0)
@@ -617,22 +633,30 @@ def run_scanner():
             plus_dm.rolling(14).sum() / (tr.rolling(14).sum() + 1e-10)
         )
 
-        # Son Değerler
         mfi_curr = mfi.iloc[-1]
         mfi_prev = mfi.iloc[-2]
         rsi_curr = rsi.iloc[-1]
         plus_di_curr = plus_di.iloc[-1]
         cmf_curr = cmf.iloc[-1]
+        close_curr = close.iloc[-1]
+        hma9_curr = hma9.iloc[-1]
 
-        # Sinyal Koşulları (Periyoda göre ayrıldı)
         sinyal_var = False
 
-        if ozel_kural:
-          # 15 Dakikalık için Özel Kural: +DI > 30 ve MFI > 70
+        if kural_tipi == "15m":
           if plus_di_curr > 30 and mfi_curr > 70:
             sinyal_var = True
-        else:
-          # 1 Saatlik ve 4 Saatlik için Orijinal Kural: MFI 60 yukarı kesişim, +DI > 30, RSI > 50, CMF > -0.20
+
+        elif kural_tipi == "1h_gorsel":
+          if (
+              (close_curr > hma9_curr)
+              and (mfi_prev < 60 and mfi_curr >= 60)
+              and (plus_di_curr > 30)
+              and (cmf_curr > 0)
+          ):
+            sinyal_var = True
+
+        elif kural_tipi == "4h":
           if (
               (mfi_prev < 60 and mfi_curr >= 60)
               and (plus_di_curr > 30)
@@ -650,7 +674,7 @@ def run_scanner():
             baslik = f"BIST {label} Sinyal"
             mesaj = (
                 f"🚀 *BIST {label} Sinyal* ({zaman_str})\n• Hisse:"
-                f" *{temiz_isim}* | Fiyat: {close.iloc[-1]:.2f} | MFI:"
+                f" *{temiz_isim}* | Fiyat: {close_curr:.2f} | MFI:"
                 f" {mfi_curr:.1f} | +DI: {plus_di_curr:.1f}"
             )
 
