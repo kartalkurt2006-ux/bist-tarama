@@ -39,7 +39,7 @@ TIMEFRAMES = [
     },
 ]
 
-# BIST Tüm Hisseler (Temizlenmiş Liste)
+# BIST Tüm Hisseler (Yan Yna Dizilmiş Kompakt Liste)
 STOCKS = [
     "AAVST.IS",
     "ACSEL.IS",
@@ -669,34 +669,15 @@ def run_scanner():
         sinyal_var = False
 
         if kural_tipi == "15m":
-          # 15 Dakikalık Kapsamlı Kurallar: TD Seq Dip Teyidi + Hull 20 + MFI > 60 + +DI > 20 + CMF > 0 + Hacim Patlaması
+          # 15 Dakikalık Sadeleştirilmiş Kurallar: TD Seq Dip Teyidi + Hull 20 Üstü + MFI > 55
           hma20 = calculate_hma(close, 20)
           hma20_curr = hma20.iloc[-1]
 
           td_dip_sarti = td_seq_alis_kurulumu_kontrol(df)
-          kosul_hull = hma20_curr < close_curr
-          kosul_mfi = mfi_curr > 60
-          kosul_di = plus_di_curr > 20
-          kosul_cmf = cmf_curr > 0
+          kosul_hull = close_curr > hma20_curr
+          kosul_mfi = mfi_curr > 55
 
-          son_hacim = float(volume.iloc[-1])
-          ortalama_hacim = float(volume.iloc[-21:-1].mean())
-          bir_onceki_fiyat = float(close.iloc[-2])
-          fiyat_degisim = (
-              (close_curr - bir_onceki_fiyat) / bir_onceki_fiyat
-          ) * 100
-          kosul_hacim_fiyat = (son_hacim > (ortalama_hacim * 1.5)) and (
-              fiyat_degisim >= 1.5
-          )
-
-          if (
-              td_dip_sarti
-              and kosul_hull
-              and kosul_mfi
-              and kosul_di
-              and kosul_cmf
-              and kosul_hacim_fiyat
-          ):
+          if td_dip_sarti and kosul_hull and kosul_mfi:
             sinyal_var = True
 
         elif kural_tipi == "1h_gorsel":
