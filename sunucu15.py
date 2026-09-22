@@ -13,12 +13,9 @@ app = Flask(__name__)
 
 # --- AYARLAR VE SABİTLER ---
 MEMORY_FILE_15M = "hafiza_15m_yeni_strateji.json"
-MEMORY_FILE_FIB = "hafiza_fib_mfi.json"
 COOLDOWN_SECONDS = 1800  # Aynı hisse için 30 dakika bekleme süresi
 TZ_TR = pytz.timezone("Europe/Istanbul")
-
 NTFY_URL_15M = "https://ntfy.sh/borsa_senet"
-NTFY_URL_FIB = "https://ntfy.sh/borsa_fib_mfi"  # İstersen aynı ntfy kanalını da yazabilirsin
 
 # BIST Tüm Hisseler Listesi
 STOCKS = [
@@ -483,7 +480,6 @@ def piyasa_zaman_kontrolu():
   return baslangic <= simdi <= bitis
 
 
-# --- 1. TARAMA (15m Yeni Strateji) ---
 def hafiza_yukle_15m():
   if os.path.exists(MEMORY_FILE_15M):
     try:
@@ -593,101 +589,15 @@ def run_scanner_15m():
       continue
 
 
-# --- 2. TARAMA (Fibonacci MFI Stratejisi) ---
-def hafiza_yukle_fib():
-  if os.path.exists(MEMORY_FILE_FIB):
-    try:
-      with open(MEMORY_FILE_FIB, "r") as f:
-        return json.load(f)
-    except:
-      return {}
-  return {}
-
-
-def hafiza_kaydet_fib(hafiza):
-  with open(MEMORY_FILE_FIB, "w") as f:
-    json.dump(hafiza, f)
-
-
-def send_ntfy_fib(message):
-  try:
-    headers = {"Title": "Fibonacci MFI Sinyal", "Priority": "high"}
-    requests.post(
-        NTFY_URL_15M, data=message.encode("utf-8"), headers=headers, timeout=10
-    )
-  except Exception as e:
-    print(f"Bildirim Hatası: {e}")
-
-
-def run_scanner_fib():
-  if not piyasa_zaman_kontrolu():
-    return
-  hafiza = hafiza_yukle_fib()
-  simdi_epoch = time.time()
-
-  for ticker in STOCKS:
-    clean_ticker = ticker.strip()
-    try:
-      df = yf.download(
-          clean_ticker, period="60d", interval="15m", progress=False
-      )
-      if df.empty or len(df) < 30:
-        continue
-      if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-
-      high, low, close, volume = (
-          df["High"],
-          df["Low"],
-          df["Close"],
-          df["Volume"],
-      )
-
-      # Fibonacci / MFI Mantığı (Orijinal fib_mfi_bot formülleri korunmuştur)
-      typical_price = (high + low + close) / 3
-      money_flow = typical_price * volume
-      positive_flow = (
-          money_flow.where(typical_price > typical_price.shift(1), 0)
-          .rolling(14)
-          .sum()
-      )
-      negative_flow = (
-          money_flow.where(typical_price < typical_price.shift(1), 0)
-          .rolling(14)
-          .sum()
-      )
-      mfi = 100 - (100 / (1 + (positive_flow / (negative_flow + 1e-10))))
-
-      # Örnek Fibonacci seviye kontrolü (MFI değerinin 38.2 veya 61.8 kesişimi/bölgesi)
-      mfi_curr = mfi.iloc[-1]
-      mfi_prev = mfi.iloc[-2]
-
-      if mfi_prev < 38.2 and mfi_curr >= 38.2:
-        if simdi_epoch - hafiza.get(clean_ticker, 0) > COOLDOWN_SECONDS:
-          temiz_isim = clean_ticker.replace(".IS", "")
-          mesaj = (
-              f"📊 *Fibonacci MFI Sinyal*\n• Hisse: *{temiz_isim}* | Fiyat:"
-              f" {close.iloc[-1]:.2f}\n• MFI Seviye: {mfi_curr:.1f}"
-          )
-          send_ntfy_fib(mesaj)
-          hafiza[clean_ticker] = simdi_epoch
-          hafiza_kaydet_fib(hafiza)
-    except:
-      continue
-
-
-# --- RENDER WEB SUNUCUSU Rotaları ---
 @app.route("/")
 def home():
-  return "BIST Çift Tarama Sunucusu Aktif ve Çalışıyor!"
+  return "BIST 15m Tarama Sunucusu Aktif!"
 
 
 @app.route("/tara")
 def manual_scan():
-  # İki taramayı da aynı anda arka planda tetikler
   Thread(target=run_scanner_15m).start()
-  Thread(target=run_scanner_fib).start()
-  return "Her iki tarama (15m ve Fibonacci) arka planda tetiklendi!"
+  return "15m tarama arka planda tetiklendi!"
 
 
 if __name__ == "__main__":
