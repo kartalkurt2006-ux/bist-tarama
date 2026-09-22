@@ -8,7 +8,7 @@ from datetime import datetime
 import pytz
 
 # --- AYARLAR VE SABİTLER ---
-MEMORY_FILE = "hafiza_15m_tora_full.json"
+MEMORY_FILE = "hafiza_15m_yeni_strateji.json"
 COOLDOWN_SECONDS = 1800  # Aynı hisse için 30 dakika bekleme süresi
 TZ_TR = pytz.timezone("Europe/Istanbul")
 
@@ -92,18 +92,12 @@ def piyasa_zaman_kontrolu():
 def send_ntfy(message):
     try:
         headers = {
-            "Title": "BIST 15m Süper Kırılım",
+            "Title": "BIST 15m Yeni Strateji Sinyali",
             "Priority": "high"
         }
         requests.post(NTFY_URL, data=message.encode('utf-8'), headers=headers, timeout=10)
     except Exception as e:
         print(f"Bildirim Hatası: {e}")
-
-def hesapla_td_seq(df):
-    close = df['Close']
-    pivots = (close < close.shift(4)).astype(int)
-    setup_count = pivots.groupby((~pivots.astype(bool)).cumsum()).cumsum()
-    return setup_count
 
 def run_scanner():
     if not piyasa_zaman_kontrolu():
@@ -113,12 +107,11 @@ def run_scanner():
     hafiza = hafiza_yukle()
     simdi_epoch = time.time()
     
-    print(f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] BIST Tüm Hisseler 15m Tarama Başlatıldı... Toplam Hisse: {len(STOCKS)}")
+    print(f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] BIST Tüm Hisseler 15m Yeni Strateji Taraması Başlatıldı... Toplam Hisse: {len(STOCKS)}")
 
     for ticker in STOCKS:
         clean_ticker = ticker.strip()
         try:
-            # 15 dakikalık veriyi çek (Yahoo Finance 15m için son 60 günü destekler)
             df = yf.download(clean_ticker, period="60d", interval="15m", progress=False)
             if df.empty or len(df) < 30:
                 continue
@@ -126,21 +119,29 @@ def run_scanner():
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
 
-            setup_count = hesapla_td_seq(df)
             high = df['High']
             low = df['Low']
             close = df['Close']
             volume = df['Volume']
 
-            # Hacim Ortalaması (Son 20 bar)
-            vol_ma = volume.rolling(20).mean()
+            # RSI (14)
+            delta = close.diff()
+            gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+            rs = gain / (loss + 1e-10)
+            rsi = 100 - (100 / (1 + rs))
 
-            # MFI (14)
+            # MFI / Para Akışı (14)
             typical_price = (high + low + close) / 3
             money_flow = typical_price * volume
             positive_flow = money_flow.where(typical_price > typical_price.shift(1), 0).rolling(14).sum()
             negative_flow = money_flow.where(typical_price < typical_price.shift(1), 0).rolling(14).sum()
             mfi = 100 - (100 / (1 + (positive_flow / (negative_flow + 1e-10))))
+
+            # CMF (20)
+            mf_multiplier = ((close - low) - (high - close)) / ((high - low) + 1e-10)
+            mf_volume = mf_multiplier * volume
+            cmf = mf_volume.rolling(20).sum() / (volume.rolling(20).sum() + 1e-10)
 
             # +DI (14)
             up_move = high.diff()
@@ -149,42 +150,35 @@ def run_scanner():
             tr = pd.concat([high - low, (high - close.shift(1)).abs(), (low - close.shift(1)).abs()], axis=1).max(axis=1)
             plus_di = 100 * (plus_dm.rolling(14).sum() / (tr.rolling(14).sum() + 1e-10))
 
-            recent_setups = setup_count.tail(15)
-            if 9 in recent_setups.values:
-                idx_9 = recent_setups[recent_setups == 9].index[-1]
-                loc_9 = df.index.get_loc(idx_9)
+            # Son ve Önceki Değerler
+            plus_di_curr = plus_di.iloc[-1]
+            plus_di_prev = plus_di.iloc[-2]
+            mfi_curr = mfi.iloc[-1]
+            cmf_curr = cmf.iloc[-1]
+            rsi_curr = rsi.iloc[-1]
+
+            # Koşullar:
+            # 1. +DI 30'u yukarı keser (plus_di_prev < 30 and plus_di_curr >= 30)
+            # 2. Para Akışı (MFI) > 55
+            # 3. CMF > 0
+            # 4. RSI > 50
+            if (plus_di_prev < 30 and plus_di_curr >= 30) and (mfi_curr > 55) and (cmf_curr > 0) and (rsi_curr > 50):
                 
-                start_loc = max(0, loc_9 - 8)
-                setup_high = high.iloc[start_loc:loc_9+1].max()
-                
-                curr_close = close.iloc[-1]
-                curr_vol = volume.iloc[-1]
-                curr_vol_ma = vol_ma.iloc[-1]
-                mfi_curr = mfi.iloc[-1]
-                plus_di_curr = plus_di.iloc[-1]
-                
-                # Koşullar: Direnç Kırılımı + Hacim (1.5x) + MFI > 40 + +DI > 20
-                if (curr_close > setup_high and 
-                    curr_vol > (curr_vol_ma * 1.5) and 
-                    mfi_curr > 40 and 
-                    plus_di_curr > 20):
+                son_gonderim = hafiza.get(clean_ticker, 0)
+                if simdi_epoch - son_gonderim > COOLDOWN_SECONDS:
+                    temiz_isim = clean_ticker.replace(".IS", "")
+                    zaman_str = datetime.now(TZ_TR).strftime('%H:%M')
                     
-                    son_gonderim = hafiza.get(clean_json_key := clean_ticker, 0) # hafıza kontrolü
-                    if simdi_epoch - son_gonderim > COOLDOWN_SECONDS:
-                        temiz_isim = clean_ticker.replace(".IS", "")
-                        zaman_str = datetime.now(TZ_TR).strftime('%H:%M')
-                        hacim_carpani = curr_vol / (curr_vol_ma + 1e-10)
-                        
-                        mesaj = f"🚀 *15m Süper Sinyal* ({zaman_str})\n• Hisse: *{temiz_isim}* | Fiyat: {curr_close:.2f}\n• Direnç: {setup_high:.2f}\n• MFI: {mfi_curr:.1f} | +DI: {plus_di_curr:.1f} | Hacim: {hacim_carpani:.1f}x"
-                        send_ntfy(mesaj)
-                        
-                        hafiza[clean_ticker] = simdi_epoch
-                        hafiza_kaydet(hafiza)
+                    mesaj = f"🚀 *15m Yeni Sinyal* ({zaman_str})\n• Hisse: *{temiz_isim}* | Fiyat: {close.iloc[-1]:.2f}\n• +DI Kesişim: {plus_di_curr:.1f}\n• MFI: {mfi_curr:.1f} | CMF: {cmf_curr:.2f} | RSI: {rsi_curr:.1f}"
+                    send_ntfy(mesaj)
+                    
+                    hafiza[clean_ticker] = simdi_epoch
+                    hafiza_kaydet(hafiza)
 
         except Exception as e:
             continue
 
-    print("BIST Tüm Hisseler 15m Tarama Turu Tamamlandı.")
+    print("BIST Tüm Hisseler 15m Yeni Strateji Tarama Turu Tamamlandı.")
 
 if __name__ == "__main__":
     run_scanner()
