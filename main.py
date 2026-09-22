@@ -9,12 +9,33 @@ import pytz
 import requests
 
 # --- AYARLAR VE SABİTLER ---
-MEMORY_FILE = "hafiza_4h.json"
-COOLDOWN_SECONDS = 3600  # Aynı hisse için 1 saat bekleme süresi
+COOLDOWN_SECONDS = 3600  # Aynı hisse ve aynı periyot için 1 saat bekleme süresi
 TZ_TR = pytz.timezone("Europe/Istanbul")
 
 # Ntfy Kanal Ayarı
 NTFY_URL = "https://ntfy.sh/borsa_senet"
+
+# Taranacak Periyotlar, Özel Kuralları ve Hafıza Dosyaları
+TIMEFRAMES = [
+    {
+        "period": "15m",
+        "label": "15 Dakikalık",
+        "memory": "hafiza_15m.json",
+        "ozel_kural": True,  # 15dk için özel kurallar aktif
+    },
+    {
+        "period": "1h",
+        "label": "1 Saatlik",
+        "memory": "hafiza_1h.json",
+        "ozel_kural": False,
+    },
+    {
+        "period": "4h",
+        "label": "4 Saatlik",
+        "memory": "hafiza_4h.json",
+        "ozel_kural": False,
+    },
+]
 
 # BIST Tüm Hisseler (Temizlenmiş Liste)
 STOCKS = [
@@ -470,18 +491,18 @@ STOCKS = [
 ]
 
 
-def hafiza_yukle():
-  if os.path.exists(MEMORY_FILE):
+def hafiza_yukle(dosya_adi):
+  if os.path.exists(dosya_adi):
     try:
-      with open(MEMORY_FILE, "r") as f:
+      with open(dosya_adi, "r") as f:
         return json.load(f)
     except:
       return {}
   return {}
 
 
-def hafiza_kaydet(hafiza):
-  with open(MEMORY_FILE, "w") as f:
+def hafiza_kaydet(dosya_adi, hafiza):
+  with open(dosya_adi, "w") as f:
     json.dump(hafiza, f)
 
 
@@ -498,13 +519,13 @@ def piyasa_zaman_kontrolu():
   return False
 
 
-def send_ntfy(message):
+def send_ntfy(message, baslik):
   try:
-    headers = {"Title": "BIST 4 Saatlik Sinyal", "Priority": "high"}
+    headers = {"Title": baslik, "Priority": "high"}
     res = requests.post(
         NTFY_URL, data=message.encode("utf-8"), headers=headers, timeout=10
     )
-    print(f"Ntfy Yanıtı: {res.status_code}")
+    print(f"Ntfy Yanıtı ({baslik}): {res.status_code}")
   except Exception as e:
     print(f"Ntfy Mesaj Hatası: {e}")
 
@@ -514,111 +535,134 @@ def run_scanner():
     print("Borsa seans saatleri dışındayız veya hafta sonu. Tarama atlanıyor.")
     return
 
-  hafiza = hafiza_yukle()
   simdi_epoch = time.time()
-
   print(
-      f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] BIST 4 Saatlik"
-      f" Tarama Başlatıldı... Toplam Hisse: {len(STOCKS)}"
+      f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] Çoklu Periyot"
+      f" (15m, 1h, 4h) BIST Taraması Başlatıldı..."
   )
 
-  for ticker in STOCKS:
-    clean_ticker = ticker.strip()
-    try:
-      df = yf.download(clean_ticker, period="1mo", interval="4h", progress=False)
-      if df.empty or len(df) < 20:
+  for tf in TIMEFRAMES:
+    period = tf["period"]
+    label = tf["label"]
+    mem_file = tf["memory"]
+    ozel_kural = tf["ozel_kural"]
+
+    hafiza = hafiza_yukle(mem_file)
+    print(
+        f"--> {label} ({period}) taraması yapılıyor... Toplam Hisse:"
+        f" {len(STOCKS)}"
+    )
+
+    for ticker in STOCKS:
+      clean_ticker = ticker.strip()
+      try:
+        df = yf.download(
+            clean_ticker, period="5d", interval=period, progress=False
+        )
+        if df.empty or len(df) < 20:
+          continue
+
+        if isinstance(df.columns, pd.MultiIndex):
+          df.columns = df.columns.get_level_values(0)
+
+        close = df["Close"]
+        high = df["High"]
+        low = df["Low"]
+        volume = df["Volume"]
+
+        # RSI (14)
+        delta = close.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+        rs = gain / (loss + 1e-10)
+        rsi = 100 - (100 / (1 + rs))
+
+        # MFI (14)
+        typical_price = (high + low + close) / 3
+        money_flow = typical_price * volume
+        positive_flow = (
+            money_flow.where(typical_price > typical_price.shift(1), 0)
+            .rolling(14)
+            .sum()
+        )
+        negative_flow = (
+            money_flow.where(typical_price < typical_price.shift(1), 0)
+            .rolling(14)
+            .sum()
+        )
+        mfi = 100 - (
+            100 / (1 + (positive_flow / (negative_flow + 1e-10)))
+        )
+
+        # CMF (20)
+        mf_multiplier = ((close - low) - (high - close)) / (
+            (high - low) + 1e-10
+        )
+        mf_volume = mf_multiplier * volume
+        cmf = mf_volume.rolling(20).sum() / (volume.rolling(20).sum() + 1e-10)
+
+        # +DI (14)
+        up_move = high.diff()
+        down_move = -low.diff()
+        plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0)
+        tr = pd.concat(
+            [
+                high - low,
+                (high - close.shift(1)).abs(),
+                (low - close.shift(1)).abs(),
+            ],
+            axis=1,
+        ).max(axis=1)
+        plus_di = 100 * (
+            plus_dm.rolling(14).sum() / (tr.rolling(14).sum() + 1e-10)
+        )
+
+        # Son Değerler
+        mfi_curr = mfi.iloc[-1]
+        mfi_prev = mfi.iloc[-2]
+        rsi_curr = rsi.iloc[-1]
+        plus_di_curr = plus_di.iloc[-1]
+        cmf_curr = cmf.iloc[-1]
+
+        # Sinyal Koşulları (Periyoda göre ayrıldı)
+        sinyal_var = False
+
+        if ozel_kural:
+          # 15 Dakikalık için Özel Kural: +DI > 30 ve MFI > 70
+          if plus_di_curr > 30 and mfi_curr > 70:
+            sinyal_var = True
+        else:
+          # 1 Saatlik ve 4 Saatlik için Orijinal Kural: MFI 60 yukarı kesişim, +DI > 30, RSI > 50, CMF > -0.20
+          if (
+              (mfi_prev < 60 and mfi_curr >= 60)
+              and (plus_di_curr > 30)
+              and (rsi_curr > 50)
+              and (cmf_curr > -0.20)
+          ):
+            sinyal_var = True
+
+        if sinyal_var:
+          son_gonderim = hafiza.get(clean_ticker, 0)
+          if simdi_epoch - son_gonderim > COOLDOWN_SECONDS:
+            temiz_isim = clean_ticker.replace(".IS", "")
+            zaman_str = datetime.now(TZ_TR).strftime("%H:%M")
+
+            baslik = f"BIST {label} Sinyal"
+            mesaj = (
+                f"🚀 *BIST {label} Sinyal* ({zaman_str})\n• Hisse:"
+                f" *{temiz_isim}* | Fiyat: {close.iloc[-1]:.2f} | MFI:"
+                f" {mfi_curr:.1f} | +DI: {plus_di_curr:.1f}"
+            )
+
+            send_ntfy(mesaj, baslik)
+
+            hafiza[clean_ticker] = simdi_epoch
+            hafiza_kaydet(mem_file, hafiza)
+
+      except Exception as e:
         continue
 
-      if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-
-      close = df["Close"]
-      high = df["High"]
-      low = df["Low"]
-      volume = df["Volume"]
-
-      # RSI (14)
-      delta = close.diff()
-      gain = (delta.where(delta > 0, 0)).rolling(14).mean()
-      loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-      rs = gain / (loss + 1e-10)
-      rsi = 100 - (100 / (1 + rs))
-
-      # MFI (14) - Güvenli Bölme
-      typical_price = (high + low + close) / 3
-      money_flow = typical_price * volume
-      positive_flow = (
-          money_flow.where(typical_price > typical_price.shift(1), 0)
-          .rolling(14)
-          .sum()
-      )
-      negative_flow = (
-          money_flow.where(typical_price < typical_price.shift(1), 0)
-          .rolling(14)
-          .sum()
-      )
-      mfi = 100 - (
-          100 / (1 + (positive_flow / (negative_flow + 1e-10)))
-      )
-
-      # CMF (20) - Güvenli Payda
-      mf_multiplier = ((close - low) - (high - close)) / (
-          (high - low) + 1e-10
-      )
-      mf_volume = mf_multiplier * volume
-      cmf = mf_volume.rolling(20).sum() / (volume.rolling(20).sum() + 1e-10)
-
-      # +DI (14)
-      up_move = high.diff()
-      down_move = -low.diff()
-      plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0)
-      tr = pd.concat(
-          [
-              high - low,
-              (high - close.shift(1)).abs(),
-              (low - close.shift(1)).abs(),
-          ],
-          axis=1,
-      ).max(axis=1)
-      plus_di = 100 * (
-          plus_dm.rolling(14).sum() / (tr.rolling(14).sum() + 1e-10)
-      )
-
-      # Son Değerler
-      mfi_curr = mfi.iloc[-1]
-      mfi_prev = mfi.iloc[-2]
-      rsi_curr = rsi.iloc[-1]
-      plus_di_curr = plus_di.iloc[-1]
-      cmf_curr = cmf.iloc[-1]
-
-      # Koşullar: MFI 60 yukarı kesişim, +DI > 30, RSI > 50, CMF > -0.20
-      if (
-          (mfi_prev < 60 and mfi_curr >= 60)
-          and (plus_di_curr > 30)
-          and (rsi_curr > 50)
-          and (cmf_curr > -0.20)
-      ):
-        son_gonderim = hafiza.get(clean_ticker, 0)
-        if simdi_epoch - son_gonderim > COOLDOWN_SECONDS:
-          temiz_isim = clean_ticker.replace(".IS", "")
-          zaman_str = datetime.now(TZ_TR).strftime("%H:%M")
-          mesaj = (
-              f"🚀 *BIST 4 Saatlik Sinyal* ({zaman_str})\n• Hisse:"
-              f" *{temiz_isim}* | Fiyat: {close.iloc[-1]:.2f} | MFI:"
-              f" {mfi_curr:.1f} | CMF: {cmf_curr:.2f}"
-          )
-
-          send_ntfy(mesaj)
-
-          hafiza[clean_ticker] = simdi_epoch
-          hafiza_kaydet(hafiza)
-        else:
-          print(f"{clean_ticker} için 1 saatlik cooldown aktif.")
-
-    except Exception as e:
-      continue
-
-  print("4 Saatlik Tarama Turu Tamamlandı.")
+  print("Tüm Periyotların Tarama Turu Tamamlandı.")
 
 
 if __name__ == "__main__":
