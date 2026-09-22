@@ -17,7 +17,7 @@ MEMORY_FILE_FIB = "hafiza_fib_mfi.json"
 COOLDOWN_SECONDS = 1800  # Aynı hisse için 30 dakika bekleme süresi
 TZ_TR = pytz.timezone("Europe/Istanbul")
 
-NTFY_URL_15M = "https://ntfy.sh/borsa_senet_15m"
+NTFY_URL_15M = "https://ntfy.sh/borsa_senet"
 NTFY_URL_FIB = "https://ntfy.sh/borsa_fib_mfi"  # İstersen aynı ntfy kanalını da yazabilirsin
 
 # BIST Tüm Hisseler Listesi
