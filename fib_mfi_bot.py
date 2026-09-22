@@ -1,44 +1,23 @@
 from datetime import datetime
 import json
 import os
-import threading
 import time
+from threading import Thread
 from flask import Flask
+import pandas as pd
 import pytz
 import requests
 import yfinance as yf
 
-# --- RENDER WEB SUNUCU KABUĞU ---
 app = Flask(__name__)
 
-
-@app.route("/")
-def home():
-  return (
-      "Fibonacci + TD + MFI Botu Aktif! Manuel tarama için /tara adresine"
-      " gidebilirsiniz.",
-      200,
-  )
-
-
-@app.route("/tara")
-def manual_scan():
-  try:
-    threading.Thread(target=run_scanner).start()
-    return "Tarama başarıyla tetiklendi! Sinyaller kontrol ediliyor...", 200
-  except Exception as e:
-    return f"Tarama sırasında hata oluştu: {e}", 500
-
-
 # --- AYARLAR VE SABİTLER ---
-MEMORY_FILE = "hafiza_fib_td_mfi.json"
+MEMORY_FILE_FIB = "hafiza_fib_mfi.json"
 COOLDOWN_SECONDS = 1800  # Aynı hisse için 30 dakika bekleme süresi
 TZ_TR = pytz.timezone("Europe/Istanbul")
+NTFY_URL_FIB = "https://ntfy.sh/borsa_senet"  # İstersen burayı da değiştirebilirsin
 
-# Ntfy Kanalın
-NTFY_URL = "https://ntfy.sh/borsa_senet"
-
-# BIST Tüm Hisseler Listesi (Yan Yana Düzenlenmiş Liste)
+# BIST Tüm Hisseler Listesi
 STOCKS = [
     "AAVST.IS",
     "ACSEL.IS",
@@ -492,21 +471,6 @@ STOCKS = [
 ]
 
 
-def hafiza_yukle():
-  if os.path.exists(MEMORY_FILE):
-    try:
-      with open(MEMORY_FILE, "r") as f:
-        return json.load(f)
-    except:
-      return {}
-  return {}
-
-
-def hafiza_kaydet(hafiza):
-  with open(MEMORY_FILE, "w") as f:
-    json.dump(hafiza, f)
-
-
 def piyasa_zaman_kontrolu():
   simdi = datetime.now(TZ_TR)
   if simdi.weekday() >= 5:
@@ -516,24 +480,36 @@ def piyasa_zaman_kontrolu():
   return baslangic <= simdi <= bitis
 
 
-def send_ntfy(message):
+def hafiza_yukle_fib():
+  if os.path.exists(MEMORY_FILE_FIB):
+    try:
+      with open(MEMORY_FILE_FIB, "r") as f:
+        return json.load(f)
+    except:
+      return {}
+  return {}
+
+
+def hafiza_kaydet_fib(hafiza):
+  with open(MEMORY_FILE_FIB, "w") as f:
+    json.dump(hafiza, f)
+
+
+def send_ntfy_fib(message):
   try:
-    headers = {"Title": "Fibonacci + TD + MFI Sinyali", "Priority": "high"}
+    headers = {"Title": "Fibonacci MFI Sinyal", "Priority": "high"}
     requests.post(
-        NTFY_URL, data=message.encode("utf-8"), headers=headers, timeout=10
+        NTFY_URL_FIB, data=message.encode("utf-8"), headers=headers, timeout=10
     )
   except Exception as e:
     print(f"Bildirim Hatası: {e}")
 
 
-def run_scanner():
-  hafiza = hafiza_yukle()
+def run_scanner_fib():
+  if not piyasa_zaman_kontrolu():
+    return
+  hafiza = hafiza_yukle_fib()
   simdi_epoch = time.time()
-
-  print(
-      f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] Fib + TD + MFI"
-      " Tarama Başladı..."
-  )
 
   for ticker in STOCKS:
     clean_ticker = ticker.strip()
@@ -541,71 +517,60 @@ def run_scanner():
       df = yf.download(
           clean_ticker, period="60d", interval="15m", progress=False
       )
-      if df.empty or len(df) < 40:
+      if df.empty or len(df) < 30:
         continue
-
       if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
-      high = df["High"]
-      low = df["Low"]
-      close = df["Close"]
-      volume = df["Volume"]
-
-      roll_high = high.rolling(50).max()
-      roll_low = low.rolling(50).min()
-      fib_channel_upper = roll_low + (roll_high - roll_low) * 1.0
-
-      pivots = (close < close.shift(4)).astype(int)
-      setup_count = pivots.groupby((~pivots.astype(bool)).cumsum()).cumsum()
+      high, low, close, volume = (
+          df["High"],
+          df["Low"],
+          df["Close"],
+          df["Volume"],
+      )
 
       typical_price = (high + low + close) / 3
       money_flow = typical_price * volume
-      pos_flow = (
+      positive_flow = (
           money_flow.where(typical_price > typical_price.shift(1), 0)
           .rolling(14)
           .sum()
       )
-      neg_flow = (
+      negative_flow = (
           money_flow.where(typical_price < typical_price.shift(1), 0)
           .rolling(14)
           .sum()
       )
-      mfi = 100 - (100 / (1 + (pos_flow / (neg_flow + 1e-10))))
+      mfi = 100 - (100 / (1 + (positive_flow / (negative_flow + 1e-10))))
 
-      recent_setups = setup_count.tail(15)
-      if 9 in recent_setups.values:
-        idx_9 = recent_setups[recent_setups == 9].index[-1]
-        loc_9 = df.index.get_loc(idx_9)
-        start_loc = max(0, loc_9 - 8)
-        setup_high = high.iloc[start_loc : loc_9 + 1].max()
+      mfi_curr = mfi.iloc[-1]
+      mfi_prev = mfi.iloc[-2]
 
-        curr_close = close.iloc[-1]
-        curr_fib_upper = fib_channel_upper.iloc[-1]
-        curr_mfi = mfi.iloc[-1]
-
-        if (curr_close > setup_high or curr_close > curr_fib_upper) and (
-            curr_mfi > 55
-        ):
-          son_gonderim = hafiza.get(clean_ticker, 0)
-          if simdi_epoch - son_gonderim > COOLDOWN_SECONDS:
-            temiz_isim = clean_ticker.replace(".IS", "")
-            zaman_str = datetime.now(TZ_TR).strftime("%H:%M")
-
-            mesaj = (
-                f"🎯 *Fib + TD + MFI* ({zaman_str})\n• Hisse:"
-                f" *{temiz_isim}* | Fiyat: {curr_close:.2f}\n• MFI:"
-                f" {curr_mfi:.1f} | Kanal Üst: {curr_fib_upper:.2f}"
-            )
-            send_ntfy(mesaj)
-
-            hafiza[clean_ticker] = simdi_epoch
-            hafiza_kaydet(hafiza)
-
-    except Exception as e:
+      if mfi_prev < 38.2 and mfi_curr >= 38.2:
+        if simdi_epoch - hafiza.get(clean_ticker, 0) > COOLDOWN_SECONDS:
+          temiz_isim = clean_ticker.replace(".IS", "")
+          mesaj = (
+              f"📊 *Fibonacci MFI Sinyal*\n• Hisse: *{temiz_isim}* | Fiyat:"
+              f" {close.iloc[-1]:.2f}\n• MFI Seviye: {mfi_curr:.1f}"
+          )
+          send_ntfy_fib(mesaj)
+          hafiza[clean_ticker] = simdi_epoch
+          hafiza_kaydet_fib(hafiza)
+    except:
       continue
 
 
+@app.route("/")
+def home():
+  return "Fibonacci MFI Tarama Sunucusu Aktif!"
+
+
+@app.route("/tara")
+def manual_scan():
+  Thread(target=run_scanner_fib).start()
+  return "Fibonacci MFI tarama arka planda tetiklendi!"
+
+
 if __name__ == "__main__":
-  port = int(os.environ.get("PORT", 5000))
+  port = int(os.environ.get("PORT", 5001))
   app.run(host="0.0.0.0", port=port)
