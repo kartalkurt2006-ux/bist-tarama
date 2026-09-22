@@ -493,7 +493,7 @@ STOCKS = [
 ]
 
 
-def calculate_hma(series, period=9):
+def calculate_hma(series, period=20):
   half_per = period // 2
   sqrt_per = int(np.sqrt(period))
 
@@ -508,6 +508,33 @@ def calculate_hma(series, period=9):
   raw_hma = 2 * wma_half - wma_full
   hma = wma(raw_hma, sqrt_per)
   return hma
+
+
+def calculate_hma9(series, period=9):
+  half_per = period // 2
+  sqrt_per = int(np.sqrt(period))
+
+  def wma(s, p):
+    weights = np.arange(1, p + 1)
+    return s.rolling(p).apply(
+        lambda x: np.dot(x, weights) / weights.sum(), raw=True
+    )
+
+  wma_half = wma(series, half_per)
+  wma_full = wma(series, period)
+  raw_hma = 2 * wma_half - wma_full
+  hma = wma(raw_hma, sqrt_per)
+  return hma
+
+
+def td_seq_alis_kurulumu_kontrol(df):
+  if len(df) < 15:
+    return False
+  close = df["Close"]
+  earlier_close = close.shift(4)
+  condition = close < earlier_close
+  recent_cond = condition.iloc[-9:]
+  return recent_cond.all()
 
 
 def hafiza_yukle(dosya_adi):
@@ -578,7 +605,7 @@ def run_scanner():
         df = yf.download(
             clean_ticker, period="1mo", interval=period, progress=False
         )
-        if df.empty or len(df) < 25:
+        if df.empty or len(df) < 30:
           continue
 
         if isinstance(df.columns, pd.MultiIndex):
@@ -589,8 +616,7 @@ def run_scanner():
         low = df["Low"]
         volume = df["Volume"]
 
-        hma9 = calculate_hma(close, 9)
-
+        # Ortak İndikatör Hesaplamaları
         delta = close.diff()
         gain = (delta.where(delta > 0, 0)).rolling(14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
@@ -639,16 +665,44 @@ def run_scanner():
         plus_di_curr = plus_di.iloc[-1]
         cmf_curr = cmf.iloc[-1]
         close_curr = close.iloc[-1]
-        hma9_curr = hma9.iloc[-1]
 
         sinyal_var = False
 
         if kural_tipi == "15m":
-          if plus_di_curr > 30 and mfi_curr > 70:
+          # 15 Dakikalık Kapsamlı Kurallar: TD Seq Dip Teyidi + Hull 20 + MFI > 60 + +DI > 20 + CMF > 0 + Hacim Patlaması
+          hma20 = calculate_hma(close, 20)
+          hma20_curr = hma20.iloc[-1]
+
+          td_dip_sarti = td_seq_alis_kurulumu_kontrol(df)
+          kosul_hull = hma20_curr < close_curr
+          kosul_mfi = mfi_curr > 60
+          kosul_di = plus_di_curr > 20
+          kosul_cmf = cmf_curr > 0
+
+          son_hacim = float(volume.iloc[-1])
+          ortalama_hacim = float(volume.iloc[-21:-1].mean())
+          bir_onceki_fiyat = float(close.iloc[-2])
+          fiyat_degisim = (
+              (close_curr - bir_onceki_fiyat) / bir_onceki_fiyat
+          ) * 100
+          kosul_hacim_fiyat = (son_hacim > (ortalama_hacim * 1.5)) and (
+              fiyat_degisim >= 1.5
+          )
+
+          if (
+              td_dip_sarti
+              and kosul_hull
+              and kosul_mfi
+              and kosul_di
+              and kosul_cmf
+              and kosul_hacim_fiyat
+          ):
             sinyal_var = True
 
         elif kural_tipi == "1h_gorsel":
-          # 1 Saatlik: Close > HMA9, MFI > 60 (üzerinde), +DI > 30, CMF > 0
+          # 1 Saatlik (Dokunulmadı): Close > HMA9, MFI > 60, +DI > 30, CMF > 0
+          hma9 = calculate_hma9(close, 9)
+          hma9_curr = hma9.iloc[-1]
           if (
               (close_curr > hma9_curr)
               and (mfi_curr > 60)
@@ -658,6 +712,7 @@ def run_scanner():
             sinyal_var = True
 
         elif kural_tipi == "4h":
+          # 4 Saatlik (Dokunulmadı): MFI crossover 60, +DI > 30, RSI > 50, CMF > -0.20
           mfi_prev = mfi.iloc[-2]
           if (
               (mfi_prev < 60 and mfi_curr >= 60)
