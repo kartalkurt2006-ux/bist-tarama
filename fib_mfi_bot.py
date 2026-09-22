@@ -14,14 +14,23 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Fibonacci + TD + MFI Botu Aktif!", 200
+    return "Fibonacci + TD + MFI Botu Aktif! Manuel tarama için /tara adresine gidebilirsiniz.", 200
+
+@app.route('/tara')
+def manual_scan():
+    try:
+        # Arka planda hemen manuel taramayı çalıştır (Zaman veya gün bağımsız)
+        threading.Thread(target=run_scanner).start()
+        return "Manuel tarama başarıyla tetiklendi! Sinyaller kontrol ediliyor...", 200
+    except Exception as e:
+        return f"Tarama sırasında hata oluştu: {e}", 500
 
 # --- AYARLAR VE SABİTLER ---
 MEMORY_FILE = "hafiza_fib_td_mfi.json"
 COOLDOWN_SECONDS = 1800  # Aynı hisse için 30 dakika bekleme süresi
 TZ_TR = pytz.timezone("Europe/Istanbul")
 
-# Ntfy Kanalın (Ekrandaki borsa_senet kanalına uyarlandı)
+# Ntfy Kanalın
 NTFY_URL = "https://ntfy.sh/borsa_senet"
 
 # BIST Tüm Hisseler Listesi
