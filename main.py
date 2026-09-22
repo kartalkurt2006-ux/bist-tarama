@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 import pytz
 import requests
+import yfinance as yf
 
 # --- AYARLAR VE SABİTLER ---
 COOLDOWN_SECONDS = 3600  # Aynı hisse ve aynı periyot için 1 saat bekleme süresi
@@ -16,7 +17,7 @@ TZ_TR = pytz.timezone("Europe/Istanbul")
 # Ntfy Kanal Ayarı
 NTFY_URL = "https://ntfy.sh/borsa_senet"
 
-# Taranacak Periyotlar, Özel Kuralları ve Hafıza Dosyaları
+# Taranacak Periyotlar, Kuralları ve Hafıza Dosyaları (4h, 1h, 15m)
 TIMEFRAMES = [
     {
         "period": "15m",
@@ -555,7 +556,7 @@ def run_scanner():
 
   simdi_epoch = time.time()
   print(
-      f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] Çoklu Periyot"
+      f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] 4h, 1h, 15m Periyot"
       f" Taraması Başlatıldı..."
   )
 
@@ -634,7 +635,6 @@ def run_scanner():
         )
 
         mfi_curr = mfi.iloc[-1]
-        mfi_prev = mfi.iloc[-2]
         rsi_curr = rsi.iloc[-1]
         plus_di_curr = plus_di.iloc[-1]
         cmf_curr = cmf.iloc[-1]
@@ -648,15 +648,17 @@ def run_scanner():
             sinyal_var = True
 
         elif kural_tipi == "1h_gorsel":
+          # 1 Saatlik: Close > HMA9, MFI > 60 (üzerinde), +DI > 30, CMF > 0
           if (
               (close_curr > hma9_curr)
-              and (mfi_prev < 60 and mfi_curr >= 60)
+              and (mfi_curr > 60)
               and (plus_di_curr > 30)
               and (cmf_curr > 0)
           ):
             sinyal_var = True
 
         elif kural_tipi == "4h":
+          mfi_prev = mfi.iloc[-2]
           if (
               (mfi_prev < 60 and mfi_curr >= 60)
               and (plus_di_curr > 30)
