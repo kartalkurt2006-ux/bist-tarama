@@ -17,14 +17,8 @@ TZ_TR = pytz.timezone("Europe/Istanbul")
 # Ntfy Kanal Ayarı
 NTFY_URL = "https://ntfy.sh/borsa_senet"
 
-# Taranacak Periyotlar, Kuralları ve Hafıza Dosyaları (4h, 1h, 15m)
+# Taranacak Periyotlar, Kuralları ve Hafıza Dosyaları (Yalnızca 4h ve 1h)
 TIMEFRAMES = [
-    {
-        "period": "15m",
-        "label": "15 Dakikalık",
-        "memory": "hafiza_15m.json",
-        "kural_tipi": "15m",
-    },
     {
         "period": "1h",
         "label": "1 Saatlik",
@@ -39,7 +33,7 @@ TIMEFRAMES = [
     },
 ]
 
-# BIST Tüm Hisseler (Yan Yna Dizilmiş Kompakt Liste)
+# BIST Tüm Hisseler (Yan Yana Dizilmiş Kompakt Liste)
 STOCKS = [
     "AAVST.IS",
     "ACSEL.IS",
@@ -493,23 +487,6 @@ STOCKS = [
 ]
 
 
-def calculate_hma(series, period=20):
-  half_per = period // 2
-  sqrt_per = int(np.sqrt(period))
-
-  def wma(s, p):
-    weights = np.arange(1, p + 1)
-    return s.rolling(p).apply(
-        lambda x: np.dot(x, weights) / weights.sum(), raw=True
-    )
-
-  wma_half = wma(series, half_per)
-  wma_full = wma(series, period)
-  raw_hma = 2 * wma_half - wma_full
-  hma = wma(raw_hma, sqrt_per)
-  return hma
-
-
 def calculate_hma9(series, period=9):
   half_per = period // 2
   sqrt_per = int(np.sqrt(period))
@@ -525,16 +502,6 @@ def calculate_hma9(series, period=9):
   raw_hma = 2 * wma_half - wma_full
   hma = wma(raw_hma, sqrt_per)
   return hma
-
-
-def td_seq_alis_kurulumu_kontrol(df):
-  if len(df) < 15:
-    return False
-  close = df["Close"]
-  earlier_close = close.shift(4)
-  condition = close < earlier_close
-  recent_cond = condition.iloc[-9:]
-  return recent_cond.all()
 
 
 def hafiza_yukle(dosya_adi):
@@ -583,7 +550,7 @@ def run_scanner():
 
   simdi_epoch = time.time()
   print(
-      f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] 4h, 1h, 15m Periyot"
+      f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] 4h ve 1h Periyot"
       f" Taraması Başlatıldı..."
   )
 
@@ -648,6 +615,8 @@ def run_scanner():
         up_move = high.diff()
         down_move = -low.diff()
         plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0)
+        minus_dm = down_move.where((down_move > up_move) & (down_move > 0), 0)
+
         tr = pd.concat(
             [
                 high - low,
@@ -656,44 +625,42 @@ def run_scanner():
             ],
             axis=1,
         ).max(axis=1)
-        plus_di = 100 * (
-            plus_dm.rolling(14).sum() / (tr.rolling(14).sum() + 1e-10)
-        )
+
+        tr_smooth = tr.rolling(14).sum()
+        plus_di = 100 * (plus_dm.rolling(14).sum() / (tr_smooth + 1e-10))
+        minus_di = 100 * (minus_dm.rolling(14).sum() / (tr_smooth + 1e-10))
 
         mfi_curr = mfi.iloc[-1]
         rsi_curr = rsi.iloc[-1]
         plus_di_curr = plus_di.iloc[-1]
+        minus_di_curr = minus_di.iloc[-1]
         cmf_curr = cmf.iloc[-1]
         close_curr = close.iloc[-1]
 
         sinyal_var = False
 
-        if kural_tipi == "15m":
-          # 15 Dakikalık Sadeleştirilmiş Kurallar: TD Seq Dip Teyidi + Hull 20 Üstü + MFI > 55
-          hma20 = calculate_hma(close, 20)
-          hma20_curr = hma20.iloc[-1]
-
-          td_dip_sarti = td_seq_alis_kurulumu_kontrol(df)
-          kosul_hull = close_curr > hma20_curr
-          kosul_mfi = mfi_curr > 55
-
-          if td_dip_sarti and kosul_hull and kosul_mfi:
-            sinyal_var = True
-
-        elif kural_tipi == "1h_gorsel":
-          # 1 Saatlik (Dokunulmadı): Close > HMA9, MFI > 60, +DI > 30, CMF > 0
+        if kural_tipi == "1h_gorsel":
+          # 1 Saatlik Güncel Kurallar: Close > HMA9, MFI > 55, +DI > 24, +DI, -DI'yi yukarı kesti, CMF > 0
           hma9 = calculate_hma9(close, 9)
           hma9_curr = hma9.iloc[-1]
+
+          plus_di_prev = plus_di.iloc[-2]
+          minus_di_prev = minus_di.iloc[-2]
+          di_crossover = (plus_di_prev <= minus_di_prev) and (
+              plus_di_curr > minus_di_curr
+          )
+
           if (
               (close_curr > hma9_curr)
-              and (mfi_curr > 60)
-              and (plus_di_curr > 30)
+              and (mfi_curr > 55)
+              and (plus_di_curr > 24)
+              and di_crossover
               and (cmf_curr > 0)
           ):
             sinyal_var = True
 
         elif kural_tipi == "4h":
-          # 4 Saatlik (Dokunulmadı): MFI crossover 60, +DI > 30, RSI > 50, CMF > -0.20
+          # 4 Saatlik Kurallar: MFI crossover 60, +DI > 30, RSI > 50, CMF > -0.20
           mfi_prev = mfi.iloc[-2]
           if (
               (mfi_prev < 60 and mfi_curr >= 60)
