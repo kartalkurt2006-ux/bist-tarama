@@ -12,10 +12,10 @@ import yfinance as yf
 app = Flask(__name__)
 
 # --- AYARLAR VE SABİTLER ---
-MEMORY_FILE_FIB = "hafiza_fib_mfi.json"
+MEMORY_FILE = "hafiza_wave_mfi.json"
 COOLDOWN_SECONDS = 1800  # Aynı hisse için 30 dakika bekleme süresi
 TZ_TR = pytz.timezone("Europe/Istanbul")
-NTFY_URL_FIB = "https://ntfy.sh/borsa_senet"  # İstersen burayı da değiştirebilirsin
+NTFY_URL = "https://ntfy.sh/borsa_senet"
 
 # BIST Tüm Hisseler Listesi
 STOCKS = [
@@ -480,35 +480,60 @@ def piyasa_zaman_kontrolu():
   return baslangic <= simdi <= bitis
 
 
-def hafiza_yukle_fib():
-  if os.path.exists(MEMORY_FILE_FIB):
+def hafiza_yukle():
+  if os.path.exists(MEMORY_FILE):
     try:
-      with open(MEMORY_FILE_FIB, "r") as f:
+      with open(MEMORY_FILE, "r") as f:
         return json.load(f)
     except:
       return {}
   return {}
 
 
-def hafiza_kaydet_fib(hafiza):
-  with open(MEMORY_FILE_FIB, "w") as f:
+def hafiza_kaydet(hafiza):
+  with open(MEMORY_FILE, "w") as f:
     json.dump(hafiza, f)
 
 
-def send_ntfy_fib(message):
+def send_ntfy(message):
   try:
-    headers = {"Title": "Fibonacci MFI Sinyal", "Priority": "high"}
+    headers = {"Title": "Dalga Marjı & MFI Sinyal", "Priority": "high"}
     requests.post(
-        NTFY_URL_FIB, data=message.encode("utf-8"), headers=headers, timeout=10
+        NTFY_URL, data=message.encode("utf-8"), headers=headers, timeout=10
     )
   except Exception as e:
     print(f"Bildirim Hatası: {e}")
 
 
-def run_scanner_fib():
+def check_wave_margins(df):
+  """4, 8, 5, 8, 9 periyotluk içsel dalga döngüsü marj kırılım kontrolü"""
+  if len(df) < 34:
+    return False
+
+  # İçsel dalga boyları (toplam 34 bar)
+  highs = df["High"].rolling(window=4).max()
+  lows = df["Low"].rolling(window=8).min()
+
+  # Dalga marjı hesaplama mantığı (üst direnç eşiği kırılımı)
+  wave_high = df["High"].rolling(window=34).max().shift(1)
+  wave_low = df["Low"].rolling(window=34).min().shift(1)
+  margin_range = wave_high - wave_low
+
+  # Üst direnç eşiği (%80 bandı)
+  upper_margin = wave_low + (margin_range * 0.80)
+
+  current_close = df["Close"].iloc[-1]
+  prev_close = df["Close"].iloc[-2]
+  curr_upper = upper_margin.iloc[-1]
+
+  # Kırılım şartı: Fiyatın üst marjı yukarı yönlü delip geçmesi
+  return prev_close <= curr_upper and current_close > curr_upper
+
+
+def run_scanner():
   if not piyasa_zaman_kontrolu():
     return
-  hafiza = hafiza_yukle_fib()
+  hafiza = hafiza_yukle()
   simdi_epoch = time.time()
 
   for ticker in STOCKS:
@@ -517,7 +542,7 @@ def run_scanner_fib():
       df = yf.download(
           clean_ticker, period="60d", interval="15m", progress=False
       )
-      if df.empty or len(df) < 30:
+      if df.empty or len(df) < 40:
         continue
       if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
@@ -529,6 +554,7 @@ def run_scanner_fib():
           df["Volume"],
       )
 
+      # MFI (Para Akışı Endeksi - 14 Periyot)
       typical_price = (high + low + close) / 3
       money_flow = typical_price * volume
       positive_flow = (
@@ -544,31 +570,36 @@ def run_scanner_fib():
       mfi = 100 - (100 / (1 + (positive_flow / (negative_flow + 1e-10))))
 
       mfi_curr = mfi.iloc[-1]
-      mfi_prev = mfi.iloc[-2]
 
-      if mfi_prev < 38.2 and mfi_curr >= 38.2:
+      # 1. Ana Tetikleyici: Dalga Marjı Kırılımı
+      wave_breakout = check_wave_margins(df)
+
+      # 2. Onay Filtresi: MFI Orta Çizgi Üstünde mi? (> 50)
+      mfi_confirmed = mfi_curr > 50
+
+      if wave_breakout and mfi_confirmed:
         if simdi_epoch - hafiza.get(clean_ticker, 0) > COOLDOWN_SECONDS:
           temiz_isim = clean_ticker.replace(".IS", "")
           mesaj = (
-              f"📊 *Fibonacci MFI Sinyal*\n• Hisse: *{temiz_isim}* | Fiyat:"
-              f" {close.iloc[-1]:.2f}\n• MFI Seviye: {mfi_curr:.1f}"
+              f"🚀 *Dalga Marjı Kırılım Sinyali*\n• Hisse: *{temiz_isim}* | Fiyat:"
+              f" {close.iloc[-1]:.2f}\n• MFI Seviyesi: {mfi_curr:.1f}"
           )
-          send_ntfy_fib(mesaj)
+          send_ntfy(mesaj)
           hafiza[clean_ticker] = simdi_epoch
-          hafiza_kaydet_fib(hafiza)
+          hafiza_kaydet(hafiza)
     except:
       continue
 
 
 @app.route("/")
 def home():
-  return "Fibonacci MFI Tarama Sunucusu Aktif!"
+  return "Dalga Marjı & MFI Tarama Sunucusu Aktif!"
 
 
 @app.route("/tara")
 def manual_scan():
-  Thread(target=run_scanner_fib).start()
-  return "Fibonacci MFI tarama arka planda tetiklendi!"
+  Thread(target=run_scanner).start()
+  return "Dalga Marjı & MFI tarama arka planda tetiklendi!"
 
 
 if __name__ == "__main__":
