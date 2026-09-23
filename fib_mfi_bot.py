@@ -4,6 +4,7 @@ import os
 import time
 from threading import Thread
 from flask import Flask
+import numpy as np
 import pandas as pd
 import pytz
 import requests
@@ -497,7 +498,10 @@ def hafiza_kaydet(hafiza):
 
 def send_ntfy(message):
   try:
-    headers = {"Title": "Dalga Marjı & MFI Sinyal", "Priority": "high"}
+    headers = {
+        "Title": "15m Hibrit Erken Patlama Sinyali",
+        "Priority": "high",
+    }
     requests.post(
         NTFY_URL, data=message.encode("utf-8"), headers=headers, timeout=10
     )
@@ -505,29 +509,47 @@ def send_ntfy(message):
     print(f"Bildirim Hatası: {e}")
 
 
-def check_wave_margins(df):
-  """4, 8, 5, 8, 9 periyotluk içsel dalga döngüsü marj kırılım kontrolü"""
-  if len(df) < 34:
-    return False
+def calculate_supertrend(df, period=10, multiplier=3):
+  hl2 = (df["High"] + df["Low"]) / 2
+  tr1 = df["High"] - df["Low"]
+  tr2 = (df["High"] - df["Close"].shift(1)).abs()
+  tr3 = (df["Low"] - df["Close"].shift(1)).abs()
+  tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+  atr = tr.rolling(window=period).mean()
 
-  # İçsel dalga boyları (toplam 34 bar)
-  highs = df["High"].rolling(window=4).max()
-  lows = df["Low"].rolling(window=8).min()
+  upper_basic = hl2 + (multiplier * atr)
+  lower_basic = hl2 - (multiplier * atr)
 
-  # Dalga marjı hesaplama mantığı (üst direnç eşiği kırılımı)
-  wave_high = df["High"].rolling(window=34).max().shift(1)
-  wave_low = df["Low"].rolling(window=34).min().shift(1)
-  margin_range = wave_high - wave_low
+  upper_band = upper_basic.copy()
+  lower_band = lower_basic.copy()
 
-  # Üst direnç eşiği (%80 bandı)
-  upper_margin = wave_low + (margin_range * 0.80)
+  direction = pd.Series(1, index=df.index)
+  st = pd.Series(index=df.index, dtype="float64")
 
-  current_close = df["Close"].iloc[-1]
-  prev_close = df["Close"].iloc[-2]
-  curr_upper = upper_margin.iloc[-1]
+  for i in range(1, len(df)):
+    curr_close = df["Close"].iloc[i]
+    if curr_close > upper_band.iloc[i]:
+      direction.iloc[i] = 1
+    elif curr_close < lower_band.iloc[i]:
+      direction.iloc[i] = -1
+    else:
+      direction.iloc[i] = direction.iloc[i - 1]
+      if (
+          direction.iloc[i] == 1
+          and lower_band.iloc[i] < lower_band.iloc[i - 1]
+      ):
+        lower_band.iloc[i] = lower_band.iloc[i - 1]
+      if (
+          direction.iloc[i] == -1
+          and upper_band.iloc[i] > upper_band.iloc[i - 1]
+      ):
+        upper_band.iloc[i] = upper_band.iloc[i - 1]
 
-  # Kırılım şartı: Fiyatın üst marjı yukarı yönlü delip geçmesi
-  return prev_close <= curr_upper and current_close > curr_upper
+    st.iloc[i] = (
+        lower_band.iloc[i] if direction.iloc[i] == 1 else upper_band.iloc[i]
+    )
+
+  return st
 
 
 def run_scanner():
@@ -554,7 +576,17 @@ def run_scanner():
           df["Volume"],
       )
 
-      # MFI (Para Akışı Endeksi - 14 Periyot)
+      # 1. Supertrend Hesaplama ve Yüzdesel Kırılım Kontrolü (* 1.002)
+      st = calculate_supertrend(df)
+      st_breakout = close.iloc[-1] > (st.iloc[-1] * 1.002)
+
+      # 2. Hacim Kriterleri (Hacim Artışı + Göreceli Hacim RVOL > 0.6)
+      vol_ma20 = volume.rolling(window=20).mean()
+      rvol = volume.iloc[-1] / (vol_ma20.iloc[-1] + 1e-10)
+      volume_growth = volume.iloc[-1] > volume.iloc[-2]
+      rvol_check = rvol > 0.6
+
+      # 3. MFI (14 Periyot) > 29
       typical_price = (high + low + close) / 3
       money_flow = typical_price * volume
       positive_flow = (
@@ -568,38 +600,67 @@ def run_scanner():
           .sum()
       )
       mfi = 100 - (100 / (1 + (positive_flow / (negative_flow + 1e-10))))
-
       mfi_curr = mfi.iloc[-1]
+      mfi_check = mfi_curr > 29
 
-      # 1. Ana Tetikleyici: Dalga Marjı Kırılımı
-      wave_breakout = check_wave_margins(df)
+      # 4. +DI (14 Periyot) > 29
+      up_move = high.diff()
+      down_move = -low.diff()
+      plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+      tr1 = high - low
+      tr2 = (high - close.shift(1)).abs()
+      tr3 = (low - close.shift(1)).abs()
+      tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+      atr = tr.rolling(14).mean()
+      plus_di = (
+          pd.Series(plus_dm, index=df.index).rolling(14).mean()
+          / (atr + 1e-10)
+      ) * 100
+      plus_di_curr = plus_di.iloc[-1]
+      di_check = plus_di_curr > 29
 
-      # 2. Onay Filtresi: MFI Orta Çizgi Üstünde mi? (> 50)
-      mfi_confirmed = mfi_curr > 50
+      # 5. RSI (14 Periyot) > 50
+      delta = close.diff()
+      gain = delta.where(delta > 0, 0).rolling(14).mean()
+      loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+      rs = gain / (loss + 1e-10)
+      rsi = 100 - (100 / (1 + rs))
+      rsi_curr = rsi.iloc[-1]
+      rsi_check = rsi_curr > 50
 
-      if wave_breakout and mfi_confirmed:
+      # Tüm Şartların Birleşimi (Hibrit Erken Patlama Avcısı)
+      if (
+          st_breakout
+          and volume_growth
+          and rvol_check
+          and mfi_check
+          and di_check
+          and rsi_check
+      ):
         if simdi_epoch - hafiza.get(clean_ticker, 0) > COOLDOWN_SECONDS:
           temiz_isim = clean_ticker.replace(".IS", "")
           mesaj = (
-              f"🚀 *Dalga Marjı Kırılım Sinyali*\n• Hisse: *{temiz_isim}* | Fiyat:"
-              f" {close.iloc[-1]:.2f}\n• MFI Seviyesi: {mfi_curr:.1f}"
+              f"🚀 *15m Hibrit Erken Patlama Sinyali*\n• Hisse:"
+              f" *{temiz_isim}* | Fiyat: {close.iloc[-1]:.2f}\n• MFI:"
+              f" {mfi_curr:.1f} | +DI: {plus_di_curr:.1f} | RSI:"
+              f" {rsi_curr:.1f} | RVOL: {rvol:.2f}"
           )
           send_ntfy(mesaj)
           hafiza[clean_ticker] = simdi_epoch
           hafiza_kaydet(hafiza)
-    except:
+    except Exception as e:
       continue
 
 
 @app.route("/")
 def home():
-  return "Dalga Marjı & MFI Tarama Sunucusu Aktif!"
+  return "15m Hibrit Erken Patlama Tarama Sunucusu Aktif!"
 
 
 @app.route("/tara")
 def manual_scan():
   Thread(target=run_scanner).start()
-  return "Dalga Marjı & MFI tarama arka planda tetiklendi!"
+  return "15m Hibrit Erken Patlama tarama arka planda tetiklendi!"
 
 
 if __name__ == "__main__":
