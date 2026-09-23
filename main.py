@@ -17,17 +17,17 @@ TZ_TR = pytz.timezone("Europe/Istanbul")
 # Ntfy Kanal Ayarı
 NTFY_URL = "https://ntfy.sh/borsa_senet"
 
-# Taranacak Periyotlar, Kuralları ve Hafıza Dosyaları (1h odaklı güncellendi)
+# Taranacak Periyotlar, Kuralları ve Hafıza Dosyaları
 TIMEFRAMES = [
     {
         "period": "1h",
-        "label": "1 Saatlik (Dalga + İndikatör)",
+        "label": "1 Saatlik (Dalga + +DI > 20)",
         "memory": "hafiza_1h.json",
         "kural_tipi": "1h_dalga_gorsel",
     },
     {
         "period": "4h",
-        "label": "4 Saatlik",
+        "label": "4 Saatlik (Orijinal DMI Kesişimli)",
         "memory": "hafiza_4h.json",
         "kural_tipi": "4h",
     },
@@ -505,11 +505,7 @@ def calculate_hma(series, period=20):
 
 
 def check_wave_margins(df):
-  """İçsel Dalga Değerleri (4, 8, 5, 8, 9) ve Marj Kırılım Kontrolü.
-
-  Fiyatın son dalga boyu içerisindeki sıkışma ve üst marj direnç kırılımını
-  test eder.
-  """
+  """İçsel Dalga Değerleri (4, 8, 5, 8, 9) ve Marj Kırılım Kontrolü."""
   try:
     close = df["Close"].values
     high = df["High"].values
@@ -518,11 +514,9 @@ def check_wave_margins(df):
     if len(close) < 35:
       return False
 
-    # İçsel dalga döngü uzunluğu (4+8+5+8+9 = 34 periyotluk referans pencere)
     wave_sequence = [4, 8, 5, 8, 9]
     total_cycle = sum(wave_sequence)  # 34
 
-    # Son dönemsel dalga marjı (En yüksek ve en düşük bandın tespiti)
     recent_high = np.max(high[-total_cycle:])
     recent_low = np.min(low[-total_cycle:])
     margin_range = recent_high - recent_low
@@ -530,14 +524,11 @@ def check_wave_margins(df):
     if margin_range == 0:
       return False
 
-    # Fiyatın dalga içerisindeki konumunu ve üst marja yönelişini / kırılımını kontrol et
     current_price = close[-1]
     prev_price = close[-2]
 
-    # Marjın üst %20'lik direncine yaklaşma veya yukarı yönlü marj delme (Breakout)
     upper_margin_threshold = recent_low + (margin_range * 0.80)
 
-    # Dalga döngüsü içinde sıkışıp yukarı yönlü marj kıran hareket
     is_wave_breakout = (prev_price <= upper_margin_threshold) and (
         current_price > upper_margin_threshold
     )
@@ -622,8 +613,8 @@ def run_scanner():
 
   simdi_epoch = time.time()
   print(
-      f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] 1h (Dalga Entegre)"
-      f" ve 4h Periyot Taraması Başlatıldı..."
+      f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] 1h (Dalga + +DI >"
+      " 20) ve 4h (Orijinal) Tarama Başlatıldı..."
   )
 
   for tf in TIMEFRAMES:
@@ -712,31 +703,23 @@ def run_scanner():
         sinyal_var = False
 
         if kural_tipi == "1h_dalga_gorsel":
-          # 1 Saatlik Gelişmiş Kurallar: HMA20, MFI > 55, +DI > 24, DMI Kesişimi, CMF > 0 VE Dalga Marjı Kırılımı (4,8,5,8,9)
+          # 1 Saatlik Yeni Kural: HMA20, MFI > 55, +DI > 20, CMF > 0 VE Dalga Marjı Kırılımı (4,8,5,8,9)
           hma20 = calculate_hma(close, 20)
           hma20_curr = hma20.iloc[-1]
 
-          plus_di_prev = plus_di.iloc[-2]
-          minus_di_prev = minus_di.iloc[-2]
-          di_crossover = (plus_di_prev <= minus_di_prev) and (
-              plus_di_curr > minus_di_curr
-          )
-
-          # Dalga marjı ve içsel değerlerin doğrulanması
           wave_breakout = check_wave_margins(df)
 
           if (
               (close_curr > hma20_curr)
               and (mfi_curr > 55)
-              and (plus_di_curr > 24)
-              and di_crossover
+              and (plus_di_curr > 20)
               and (cmf_curr > 0)
               and wave_breakout
           ):
             sinyal_var = True
 
         elif kural_tipi == "4h":
-          # 4 Saatlik Kurallar (Ağır Top)
+          # 4 Saatlik Orijinal Kural (DMI Kesişimli)
           hma20 = calculate_hma(close, 20)
           hma20_curr = hma20.iloc[-1]
 
@@ -770,7 +753,7 @@ def run_scanner():
             mesaj = (
                 f"🚀 *BIST {label} Sinyal* ({zaman_str})\n• Hisse:"
                 f" *{temiz_isim}* | Fiyat: {close_curr:.2f} | MFI:"
-                f" {mfi_curr:.1f} | +DI: {plus_di_curr:.1f} | Dalga Kırılımı: Aktif"
+                f" {mfi_curr:.1f} | +DI: {plus_di_curr:.1f}"
             )
 
             send_ntfy(mesaj, baslik)
