@@ -17,7 +17,7 @@ TZ_TR = pytz.timezone("Europe/Istanbul")
 # Ntfy Kanal Ayarı
 NTFY_URL = "https://ntfy.sh/borsa_senet"
 
-# Taranacak Periyotlar, Kuralları ve Hafıza Dosyaları (Yalnızca 4h ve 1h)
+# Taranacak Periyotlar, Kuralları ve Hafıza Dosyaları (1h ve 4h)
 TIMEFRAMES = [
     {
         "period": "1h",
@@ -487,7 +487,7 @@ STOCKS = [
 ]
 
 
-def calculate_hma9(series, period=9):
+def calculate_hma(series, period=20):
   half_per = period // 2
   sqrt_per = int(np.sqrt(period))
 
@@ -502,6 +502,36 @@ def calculate_hma9(series, period=9):
   raw_hma = 2 * wma_half - wma_full
   hma = wma(raw_hma, sqrt_per)
   return hma
+
+
+def check_supertrend(df, period=10, multiplier=3):
+  hl2 = (df["High"] + df["Low"]) / 2
+  tr = pd.concat(
+      [
+          df["High"] - df["Low"],
+          (df["High"] - df["Close"].shift()).abs(),
+          (df["Low"] - df["Close"].shift()).abs(),
+      ],
+      axis=1,
+  ).max(axis=1)
+  atr = tr.rolling(period).mean()
+
+  upper_band = hl2 + (multiplier * atr)
+  lower_band = hl2 - (multiplier * atr)
+
+  close = df["Close"].values
+  ub = upper_band.values
+  lb = lower_band.values
+
+  uptrend = True
+  for i in range(period, len(df)):
+    if np.isnan(atr.iloc[i]):
+      continue
+    if close[i] > ub[i]:
+      uptrend = True
+    elif close[i] < lb[i]:
+      uptrend = False
+  return uptrend
 
 
 def hafiza_yukle(dosya_adi):
@@ -640,9 +670,9 @@ def run_scanner():
         sinyal_var = False
 
         if kural_tipi == "1h_gorsel":
-          # 1 Saatlik Güncel Kurallar: Close > HMA9, MFI > 55, +DI > 24, +DI, -DI'yi yukarı kesti, CMF > 0
-          hma9 = calculate_hma9(close, 9)
-          hma9_curr = hma9.iloc[-1]
+          # 1 Saatlik Kurallar: Close > HMA20, MFI > 55, +DI > 24, +DI (-DI'yi yukarı kesti), CMF > 0
+          hma20 = calculate_hma(close, 20)
+          hma20_curr = hma20.iloc[-1]
 
           plus_di_prev = plus_di.iloc[-2]
           minus_di_prev = minus_di.iloc[-2]
@@ -651,7 +681,7 @@ def run_scanner():
           )
 
           if (
-              (close_curr > hma9_curr)
+              (close_curr > hma20_curr)
               and (mfi_curr > 55)
               and (plus_di_curr > 24)
               and di_crossover
@@ -660,13 +690,27 @@ def run_scanner():
             sinyal_var = True
 
         elif kural_tipi == "4h":
-          # 4 Saatlik Kurallar: MFI crossover 60, +DI > 30, RSI > 50, CMF > -0.20
+          # 4 Saatlik Kurallar (Ağır Top): Supertrend (Yeşil), HMA20, Fibo MFI kesişimi (50 seviyesi), +DI > 30
+          hma20 = calculate_hma(close, 20)
+          hma20_curr = hma20.iloc[-1]
+
+          supertrend_green = check_supertrend(df)
+
           mfi_prev = mfi.iloc[-2]
+          fibo_mfi_crossover = (mfi_prev < 50) and (mfi_curr >= 50)
+
+          plus_di_prev = plus_di.iloc[-2]
+          minus_di_prev = minus_di.iloc[-2]
+          di_crossover_4h = (plus_di_prev <= minus_di_prev) and (
+              plus_di_curr > minus_di_curr
+          )
+
           if (
-              (mfi_prev < 60 and mfi_curr >= 60)
+              supertrend_green
+              and (close_curr > hma20_curr)
+              and fibo_mfi_crossover
               and (plus_di_curr > 30)
-              and (rsi_curr > 50)
-              and (cmf_curr > -0.20)
+              and di_crossover_4h
           ):
             sinyal_var = True
 
