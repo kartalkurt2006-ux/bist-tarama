@@ -2,11 +2,11 @@ Name: BIST Tarama Botu
 
 on:
   schedule:
-    - cron: '*/30 6-15 * * 1-5' # Hafta içi her 30 dakikada bir (UTC 06:00 - 15:00 arası yani TR saatiyle 09:00 - 18:00)
-  workflow_dispatch: # Manuel olarak istediğin an çalıştırabilmen için eklendi
+    - cron: '*/30 6-15 * * 1-5'
+  workflow_dispatch:
 
 permissions:
-  contents: write # Hafıza dosyasının repoya geri yazılabilmesi için zorunlu yetki
+  contents: write
 
 jobs:
   tarama_yap:
