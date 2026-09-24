@@ -1,9 +1,12 @@
-name: BIST Tarama Botu
+Name: BIST Tarama Botu
 
 on:
   schedule:
     - cron: '*/30 6-15 * * 1-5' # Hafta içi her 30 dakikada bir (UTC 06:00 - 15:00 arası yani TR saatiyle 09:00 - 18:00)
   workflow_dispatch: # Manuel olarak istediğin an çalıştırabilmen için eklendi
+
+permissions:
+  contents: write # Hafıza dosyasının repoya geri yazılabilmesi için zorunlu yetki
 
 jobs:
   tarama_yap:
@@ -24,3 +27,11 @@ jobs:
       - name: Botu Çalıştır
         run: |
           python main.py
+
+      - name: Hafıza Dosyasını Kaydet ve Push Yap
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add borsa_hafiza.json
+          git commit -m "Otomatik hafiza guncellemesi [skip ci]" || echo "Degisiklik yok"
+          git push
