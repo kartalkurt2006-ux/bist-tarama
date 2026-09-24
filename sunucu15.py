@@ -13,7 +13,8 @@ import yfinance as yf
 app = Flask(__name__)
 
 # --- AYARLAR VE SABİTLER ---
-MEMORY_FILE = "hafiza_hibrit_multi.json"
+MEMORY_FILE_15M = "hafiza_15m.json"
+MEMORY_FILE_1H = "hafiza_1h.json"
 COOLDOWN_SECONDS = 1800  # Aynı hisse için 30 dakika bekleme süresi
 TZ_TR = pytz.timezone("Europe/Istanbul")
 NTFY_URL = "https://ntfy.sh/borsa_senet"
@@ -481,25 +482,25 @@ def piyasa_zaman_kontrolu():
   return baslangic <= simdi <= bitis
 
 
-def hafiza_yukle():
-  if os.path.exists(MEMORY_FILE):
+def hafiza_yukle(dosya):
+  if os.path.exists(dosya):
     try:
-      with open(MEMORY_FILE, "r") as f:
+      with open(dosya, "r") as f:
         return json.load(f)
     except:
       return {}
   return {}
 
 
-def hafiza_kaydet(hafiza):
-  with open(MEMORY_FILE, "w") as f:
+def hafiza_kaydet(dosya, hafiza):
+  with open(dosya, "w") as f:
     json.dump(hafiza, f)
 
 
 def send_ntfy(message, title_prefix):
   try:
     headers = {
-        "Title": f"{title_prefix} Hibrit Erken Patlama Sinyali",
+        "Title": f"BIST {title_prefix} Hibrit Sinyal",
         "Priority": "high",
     }
     requests.post(
@@ -552,6 +553,39 @@ def calculate_supertrend(df, period=10, multiplier=3):
   return st
 
 
+def check_wave_margins(df):
+  """İçsel Dalga Değerleri (4, 8, 5, 8, 9) ve Marj Kırılım Kontrolü."""
+  try:
+    close = df["Close"].values
+    high = df["High"].values
+    low = df["Low"].values
+
+    if len(close) < 35:
+      return False
+
+    wave_sequence = [4, 8, 5, 8, 9]
+    total_cycle = sum(wave_sequence)  # 34 bar
+
+    recent_high = np.max(high[-total_cycle:])
+    recent_low = np.min(low[-total_cycle:])
+    margin_range = recent_high - recent_low
+
+    if margin_range == 0:
+      return False
+
+    current_price = close[-1]
+    prev_price = close[-2]
+
+    upper_margin_threshold = recent_low + (margin_range * 0.80)
+
+    is_wave_breakout = (prev_price <= upper_margin_threshold) and (
+        current_price > upper_margin_threshold
+    )
+    return is_wave_breakout
+  except Exception:
+    return False
+
+
 def hesapla_fibonacci(df, window=100):
   recent_df = df.tail(window)
   max_high = recent_df["High"].max()
@@ -573,143 +607,194 @@ def hesapla_fibonacci(df, window=100):
   return ilk_destek, ilk_direnc
 
 
-def tarama_calistir(interval_str):
+def ortak_tarama_mantigi(df):
+  high, low, close, volume = df["High"], df["Low"], df["Close"], df["Volume"]
+
+  # 1. Supertrend Kırılımı (* 1.002)
+  st = calculate_supertrend(df)
+  st_breakout = close.iloc[-1] > (st.iloc[-1] * 1.002)
+
+  # 2. 4-8-5-8-9 Dalga Marjı Kırılımı (Sadece 15m'ye özel istersen burayı ayırabiliriz, şimdilik aktif)
+  wave_breakout = check_wave_margins(df)
+
+  # 3. Hacim Kriterleri (Hacim Artışı + RVOL > 0.6)
+  vol_ma20 = volume.rolling(window=20).mean()
+  rvol = volume.iloc[-1] / (vol_ma20.iloc[-1] + 1e-10)
+  volume_growth = volume.iloc[-1] > volume.iloc[-2]
+  rvol_check = rvol > 0.6
+
+  # 4. Bollinger Üst Bant Kontrolü
+  sma20 = close.rolling(window=20).mean()
+  std20 = close.rolling(window=20).std()
+  upper_band = sma20 + (std20 * 2)
+  bollinger_check = close.iloc[-1] >= upper_band.iloc[-1]
+
+  # 5. MFI (14) > 29
+  typical_price = (high + low + close) / 3
+  money_flow = typical_price * volume
+  positive_flow = (
+      money_flow.where(typical_price > typical_price.shift(1), 0)
+      .rolling(14)
+      .sum()
+  )
+  negative_flow = (
+      money_flow.where(typical_price < typical_price.shift(1), 0)
+      .rolling(14)
+      .sum()
+  )
+  mfi = 100 - (100 / (1 + (positive_flow / (negative_flow + 1e-10))))
+  mfi_curr = mfi.iloc[-1]
+  mfi_check = mfi_curr > 29
+
+  # 6. +DI (14) > 20
+  up_move = high.diff()
+  down_move = -low.diff()
+  plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+  tr1 = high - low
+  tr2 = (high - close.shift(1)).abs()
+  tr3 = (low - close.shift(1)).abs()
+  tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+  atr = tr.rolling(14).mean()
+  plus_di = (
+      pd.Series(plus_dm, index=df.index).rolling(14).mean() / (atr + 1e-10)
+  ) * 100
+  plus_di_curr = plus_di.iloc[-1]
+  di_check = plus_di_curr > 20
+
+  # 7. RSI (14) > 50
+  delta = close.diff()
+  gain = delta.where(delta > 0, 0).rolling(14).mean()
+  loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+  rs = gain / (loss + 1e-10)
+  rsi = 100 - (100 / (1 + rs))
+  rsi_curr = rsi.iloc[-1]
+  rsi_check = rsi_curr > 50
+
+  sartlar_saglandi = (
+      st_breakout
+      and wave_breakout
+      and volume_growth
+      and rvol_check
+      and bollinger_check
+      and mfi_check
+      and di_check
+      and rsi_check
+  )
+
+  return (
+      sartlar_saglandi,
+      close.iloc[-1],
+      mfi_curr,
+      plus_di_curr,
+      rsi_curr,
+      rvol,
+  )
+
+
+def tarama_calistir_15m():
   if not piyasa_zaman_kontrolu():
     return
-  hafiza = hafiza_yukle()
+  hafiza = hafiza_yukle(MEMORY_FILE_15M)
   simdi_epoch = time.time()
 
   for ticker in STOCKS:
     clean_ticker = ticker.strip()
     try:
       df = yf.download(
-          clean_ticker, period="60d", interval=interval_str, progress=False
+          clean_ticker, period="30d", interval="15m", progress=False
       )
       if df.empty or len(df) < 50:
         continue
       if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
 
-      high, low, close, volume = (
-          df["High"],
-          df["Low"],
-          df["Close"],
-          df["Volume"],
+      sartlar, fiyat, mfi_curr, plus_di_curr, rsi_curr, rvol = (
+          ortak_tarama_mantigi(df)
       )
 
-      # 1. Supertrend Kırılımı (* 1.002)
-      st = calculate_supertrend(df)
-      st_breakout = close.iloc[-1] > (st.iloc[-1] * 1.002)
-
-      # 2. Hacim Kriterleri (Hacim Artışı + RVOL > 0.6)
-      vol_ma20 = volume.rolling(window=20).mean()
-      rvol = volume.iloc[-1] / (vol_ma20.iloc[-1] + 1e-10)
-      volume_growth = volume.iloc[-1] > volume.iloc[-2]
-      rvol_check = rvol > 0.6
-
-      # 3. Bollinger Üst Bant Kontrolü
-      sma20 = close.rolling(window=20).mean()
-      std20 = close.rolling(window=20).std()
-      upper_band = sma20 + (std20 * 2)
-      bollinger_check = close.iloc[-1] >= upper_band.iloc[-1]
-
-      # 4. MFI (14) > 29
-      typical_price = (high + low + close) / 3
-      money_flow = typical_price * volume
-      positive_flow = (
-          money_flow.where(typical_price > typical_price.shift(1), 0)
-          .rolling(14)
-          .sum()
-      )
-      negative_flow = (
-          money_flow.where(typical_price < typical_price.shift(1), 0)
-          .rolling(14)
-          .sum()
-      )
-      mfi = 100 - (100 / (1 + (positive_flow / (negative_flow + 1e-10))))
-      mfi_curr = mfi.iloc[-1]
-      mfi_check = mfi_curr > 29
-
-      # 5. +DI (14) > 20
-      up_move = high.diff()
-      down_move = -low.diff()
-      plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
-      tr1 = high - low
-      tr2 = (high - close.shift(1)).abs()
-      tr3 = (low - close.shift(1)).abs()
-      tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-      atr = tr.rolling(14).mean()
-      plus_di = (
-          pd.Series(plus_dm, index=df.index).rolling(14).mean()
-          / (atr + 1e-10)
-      ) * 100
-      plus_di_curr = plus_di.iloc[-1]
-      di_check = plus_di_curr > 20
-
-      # 6. RSI (14) > 50
-      delta = close.diff()
-      gain = delta.where(delta > 0, 0).rolling(14).mean()
-      loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
-      rs = gain / (loss + 1e-10)
-      rsi = 100 - (100 / (1 + rs))
-      rsi_curr = rsi.iloc[-1]
-      rsi_check = rsi_curr > 50
-
-      # Tüm Şartların Birleşimi
-      if (
-          st_breakout
-          and volume_growth
-          and rvol_check
-          and bollinger_check
-          and mfi_check
-          and di_check
-          and rsi_check
-      ):
-        mem_key = f"{clean_ticker}_{interval_str}"
+      if sartlar:
+        mem_key = f"{clean_ticker}_15m"
         if simdi_epoch - hafiza.get(mem_key, 0) > COOLDOWN_SECONDS:
           temiz_isim = clean_ticker.replace(".IS", "")
           ilk_destek, ilk_direnc = hesapla_fibonacci(df)
 
           mesaj = (
-              f"🚀 *{interval_str} Hibrit Erken Patlama Sinyali*\n• Hisse:"
-              f" *{temiz_isim}* | Fiyat: {close.iloc[-1]:.2f}\n• 🟢 İlk Destek"
-              f" (Fib): {ilk_destek:.2f}\n• 🔴 İlk Direnç (Fib):"
+              f"🚀 *15m (4-8-5-8-9) Hibrit Sinyal*\n• Hisse:"
+              f" *{temiz_isim}* | Fiyat: {fiyat:.2f}\n• 🟢 İlk Destek (Fib):"
+              f" {ilk_destek:.2f}\n• 🔴 İlk Direnç (Fib):"
               f" {ilk_direnc:.2f}\n• MFI: {mfi_curr:.1f} | +DI:"
               f" {plus_di_curr:.1f} | RSI: {rsi_curr:.1f} | RVOL: {rvol:.2f}"
           )
-          send_ntfy(mesaj, interval_str)
+          send_ntfy(mesaj, "15m (48589)")
           hafiza[mem_key] = simdi_epoch
-          hafiza_kaydet(hafiza)
-    except Exception as e:
+          hafiza_kaydet(MEMORY_FILE_15M, hafiza)
+    except Exception:
+      continue
+
+
+def tarama_calistir_1h():
+  if not piyasa_zaman_kontrolu():
+    return
+  hafiza = hafiza_yukle(MEMORY_FILE_1H)
+  simdi_epoch = time.time()
+
+  for ticker in STOCKS:
+    clean_ticker = ticker.strip()
+    try:
+      df = yf.download(
+          clean_ticker, period="60d", interval="1h", progress=False
+      )
+      if df.empty or len(df) < 50:
+        continue
+      if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+
+      sartlar, fiyat, mfi_curr, plus_di_curr, rsi_curr, rvol = (
+          ortak_tarama_mantigi(df)
+      )
+
+      if sartlar:
+        mem_key = f"{clean_ticker}_1h"
+        if simdi_epoch - hafiza.get(mem_key, 0) > COOLDOWN_SECONDS:
+          temiz_isim = clean_ticker.replace(".IS", "")
+          ilk_destek, ilk_direnc = hesapla_fibonacci(df)
+
+          mesaj = (
+              f"🚀 *1h Hibrit Sinyal*\n• Hisse: *{temiz_isim}* | Fiyat:"
+              f" {fiyat:.2f}\n• 🟢 İlk Destek (Fib):"
+              f" {ilk_destek:.2f}\n• 🔴 İlk Direnç (Fib):"
+              f" {ilk_direnc:.2f}\n• MFI: {mfi_curr:.1f} | +DI:"
+              f" {plus_di_curr:.1f} | RSI: {rsi_curr:.1f} | RVOL: {rvol:.2f}"
+          )
+          send_ntfy(mesaj, "1h")
+          hafiza[mem_key] = simdi_epoch
+          hafiza_kaydet(MEMORY_FILE_1H, hafiza)
+    except Exception:
       continue
 
 
 @app.route("/")
 def home():
-  return "Çoklu Periyot Hibrit Erken Patlama Tarama Sunucusu Aktif!"
-
-
-# Tek komutla hem 15m hem de 1h taramayı aynı anda tetikleyen rota
-@app.route("/tara")
-def manual_scan_all():
-  Thread(target=tarama_calistir, args=("15m",)).start()
-  Thread(target=tarama_calistir, args=("1h",)).start()
-  return (
-      "15m ve 1h Hibrit Erken Patlama taramaları aynı anda arka planda"
-      " tetiklendi!"
-  )
+  return "BIST 15m (48589) ve 1h Hibrit Tarama Sunucusu Aktif!"
 
 
 @app.route("/tara_15m")
 def manual_scan_15m():
-  Thread(target=tarama_calistir, args=("15m",)).start()
-  return "15m Hibrit Erken Patlama taraması arka planda tetiklendi!"
+  Thread(target=tarama_calistir_15m).start()
+  return "15m (48589) taraması arka planda tetiklendi!"
 
 
 @app.route("/tara_1h")
 def manual_scan_1h():
-  Thread(target=tarama_calistir, args=("1h",)).start()
-  return "1h Hibrit Erken Patlama taraması arka planda tetiklendi!"
+  Thread(target=tarama_calistir_1h).start()
+  return "1h taraması arka planda tetiklendi!"
+
+
+@app.route("/tara")
+def manual_scan_all():
+  Thread(target=tarama_calistir_15m).start()
+  Thread(target=tarama_calistir_1h).start()
+  return "Hem 15m (48589) hem de 1h taramaları arka planda tetiklendi!"
 
 
 if __name__ == "__main__":
