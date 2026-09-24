@@ -691,6 +691,7 @@ def home():
 
 @app.route("/tara_15m")
 def manual_scan_15m():
+  Thread(target=tarama_calistir, args=("15m",)).data = None
   Thread(target=tarama_calistir, args=("15m",)).start()
   return "15m Hibrit Erken Patlama taraması arka planda tetiklendi!"
 
@@ -702,5 +703,5 @@ def manual_scan_1h():
 
 
 if __name__ == "__main__":
-  port = int(os.environ.get("PORT", 5000))
+  port = int(os.environ.get("PORT", 5001))
   app.run(host="0.0.0.0", port=port)
