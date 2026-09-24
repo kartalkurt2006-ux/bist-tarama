@@ -18,7 +18,7 @@ NTFY_URL = "https://ntfy.sh/borsa_senet"
 # Tek Merkezi Hafıza Dosyası
 MERKEZI_HAFIZA_DOSYASI = "borsa_hafiza.json"
 
-# Taranacak Periyotlar ve Kuralları (Tek dosya yapısına uygun)
+# Taranacak Periyotlar ve Kuralları (4h kaldırıldı, Süper 1 Saat eklendi)
 TIMEFRAMES = [
     {
         "period": "15m",
@@ -36,463 +36,59 @@ TIMEFRAMES = [
         "kural_tipi": "1h_dalga_gorsel",
     },
     {
-        "period": "4h",
-        "label": "4 Saatlik (Orijinal DMI Kesişimli)",
-        "kural_tipi": "4h",
+        "period": "1h",
+        "label": "Süper 1 Saat",
+        "kural_tipi": "1h_super",
     },
 ]
 
 # BIST Tüm Hisseler
 STOCKS = [
-    "AAVST.IS",
-    "ACSEL.IS",
-    "ADEL.IS",
-    "ADESE.IS",
-    "ADGYO.IS",
-    "AEFES.IS",
-    "AFYON.IS",
-    "AGESA.IS",
-    "AGHOL.IS",
-    "AGROT.IS",
-    "AKBNK.IS",
-    "AKENR.IS",
-    "AKFGY.IS",
-    "AKFYE.IS",
-    "AKGRT.IS",
-    "AKMGY.IS",
-    "AKSA.IS",
-    "AKSEN.IS",
-    "AKSGY.IS",
-    "ALARK.IS",
-    "ALBRK.IS",
-    "ALCAR.IS",
-    "ALCTL.IS",
-    "ALFAS.IS",
-    "ALKA.IS",
-    "ALKIM.IS",
-    "ALKLC.IS",
-    "ALMAT.IS",
-    "ANELE.IS",
-    "ANGEN.IS",
-    "ANHYT.IS",
-    "ANSGR.IS",
-    "ARASE.IS",
-    "ARCLK.IS",
-    "ARDYZ.IS",
-    "ARENA.IS",
-    "ARSAN.IS",
-    "ARTMS.IS",
-    "ARZUM.IS",
-    "ASELS.IS",
-    "ASTOR.IS",
-    "ASUZU.IS",
-    "ATAKP.IS",
-    "ATATP.IS",
-    "ATEKS.IS",
-    "ATLAS.IS",
-    "AVGYO.IS",
-    "AVOD.IS",
-    "AVPGY.IS",
-    "AYCES.IS",
-    "AYDEM.IS",
-    "AYEN.IS",
-    "AYES.IS",
-    "AYGAZ.IS",
-    "AZTEK.IS",
-    "BAGFS.IS",
-    "BAKAB.IS",
-    "BALAT.IS",
-    "BANVT.IS",
-    "BARMA.IS",
-    "BASCM.IS",
-    "BASGZ.IS",
-    "BAYRK.IS",
-    "BEGYO.IS",
-    "BERA.IS",
-    "BEYAZ.IS",
-    "BIENY.IS",
-    "BIGCH.IS",
-    "BIMAS.IS",
-    "BINHO.IS",
-    "BIOEN.IS",
-    "BIZIM.IS",
-    "BJKAS.IS",
-    "BLCYT.IS",
-    "BMSCH.IS",
-    "BMSTL.IS",
-    "BNTAS.IS",
-    "BOBET.IS",
-    "BORLS.IS",
-    "BOSSA.IS",
-    "BRISA.IS",
-    "BRKO.IS",
-    "BRKSN.IS",
-    "BRLSM.IS",
-    "BRMEN.IS",
-    "BRYAT.IS",
-    "BSOKE.IS",
-    "BTCIM.IS",
-    "BUCIM.IS",
-    "BURCE.IS",
-    "BURVA.IS",
-    "BVSAN.IS",
-    "BYDNR.IS",
-    "CANTE.IS",
-    "CASFY.IS",
-    "CCOLA.IS",
-    "CELHA.IS",
-    "CEMAS.IS",
-    "CEMTS.IS",
-    "CEOEM.IS",
-    "CGCAM.IS",
-    "CIMSA.IS",
-    "CLEBI.IS",
-    "CMBTN.IS",
-    "CMENT.IS",
-    "CONSE.IS",
-    "COSMO.IS",
-    "CRDFA.IS",
-    "CRFSA.IS",
-    "CUSAN.IS",
-    "CVKMD.IS",
-    "CWENE.IS",
-    "DAGI.IS",
-    "DAPGM.IS",
-    "DARDL.IS",
-    "DENGE.IS",
-    "DERHL.IS",
-    "DERIM.IS",
-    "DESA.IS",
-    "DESPC.IS",
-    "DEVA.IS",
-    "DIRIT.IS",
-    "DITAS.IS",
-    "DMRGD.IS",
-    "DMSAS.IS",
-    "DNISI.IS",
-    "DOAS.IS",
-    "DOBUR.IS",
-    "DOCO.IS",
-    "DOGUB.IS",
-    "DOHOL.IS",
-    "DSTAN.IS",
-    "DUNYA.IS",
-    "DURDO.IS",
-    "DYOBY.IS",
-    "DZGYO.IS",
-    "EBEBK.IS",
-    "ECILC.IS",
-    "ECZYT.IS",
-    "EDIP.IS",
-    "EGEEN.IS",
-    "EGEPO.IS",
-    "EGGUB.IS",
-    "EGPRO.IS",
-    "EGSER.IS",
-    "EKGYO.IS",
-    "EKOS.IS",
-    "EKSUN.IS",
-    "ELITE.IS",
-    "EMKEL.IS",
-    "ENERY.IS",
-    "ENKAI.IS",
-    "ENJSA.IS",
-    "EPLAS.IS",
-    "ERBOS.IS",
-    "EREGL.IS",
-    "ERSU.IS",
-    "ESCAR.IS",
-    "ESCOM.IS",
-    "ESEN.IS",
-    "ETILR.IS",
-    "EUHOL.IS",
-    "EUKYO.IS",
-    "EUPWR.IS",
-    "EUREN.IS",
-    "EUYO.IS",
-    "EYGYO.IS",
-    "FADE.IS",
-    "FENER.IS",
-    "FLAP.IS",
-    "FMIZP.IS",
-    "FONET.IS",
-    "FORMT.IS",
-    "FRIGO.IS",
-    "FROTO.IS",
-    "GARAN.IS",
-    "GARFA.IS",
-    "GEDIK.IS",
-    "GEDZA.IS",
-    "GENIL.IS",
-    "GENTS.IS",
-    "GEREL.IS",
-    "GESAN.IS",
-    "GLBMD.IS",
-    "GLCVY.IS",
-    "GLRYH.IS",
-    "GLYHO.IS",
-    "GMTAS.IS",
-    "GOKNR.IS",
-    "GOLTS.IS",
-    "GOODY.IS",
-    "GOZDE.IS",
-    "GRNYO.IS",
-    "GRSEL.IS",
-    "GTRGY.IS",
-    "GUBRF.IS",
-    "GWIND.IS",
-    "GZNMI.IS",
-    "HALKB.IS",
-    "HATEK.IS",
-    "HATSN.IS",
-    "HEDEF.IS",
-    "HEKTS.IS",
-    "HKTM.IS",
-    "HLGYO.IS",
-    "HTTBT.IS",
-    "HUBVC.IS",
-    "HURGZ.IS",
-    "ICBCT.IS",
-    "IDEAS.IS",
-    "IDGYO.IS",
-    "IENTS.IS",
-    "IHEVA.IS",
-    "IHGZT.IS",
-    "IHLAS.IS",
-    "IHLGM.IS",
-    "IMASM.IS",
-    "INDES.IS",
-    "INFO.IS",
-    "INGRM.IS",
-    "INTEM.IS",
-    "INVEO.IS",
-    "INVES.IS",
-    "IPEKE.IS",
-    "ISATR.IS",
-    "ISBIR.IS",
-    "ISBTR.IS",
-    "ISCEN.IS",
-    "ISCTR.IS",
-    "ISFIN.IS",
-    "ISGSY.IS",
-    "ISGYO.IS",
-    "ISKPL.IS",
-    "ISKUR.IS",
-    "ISMEN.IS",
-    "ISSEN.IS",
-    "IZENR.IS",
-    "IZFAS.IS",
-    "IZINV.IS",
-    "JANTS.IS",
-    "KAPLM.IS",
-    "KAREL.IS",
-    "KARSN.IS",
-    "KARTN.IS",
-    "KARYE.IS",
-    "KATMR.IS",
-    "KAYSE.IS",
-    "KBORU.IS",
-    "KCAER.IS",
-    "KCHOL.IS",
-    "KENT.IS",
-    "KERVT.IS",
-    "KFEIN.IS",
-    "KGYO.IS",
-    "KIMMR.IS",
-    "KLGYO.IS",
-    "KLKIM.IS",
-    "KLRHO.IS",
-    "KLMSN.IS",
-    "KLSER.IS",
-    "KLSYN.IS",
-    "KMPUR.IS",
-    "KNFRT.IS",
-    "KONTR.IS",
-    "KONYA.IS",
-    "KOPOL.IS",
-    "KORDS.IS",
-    "KOTON.IS",
-    "KOZAA.IS",
-    "KOZAL.IS",
-    "KRDMD.IS",
-    "KRGYO.IS",
-    "KRONT.IS",
-    "KRPLS.IS",
-    "KRSTL.IS",
-    "KRTEK.IS",
-    "KZBGY.IS",
-    "KZYGZ.IS",
-    "LIDER.IS",
-    "LIDFA.IS",
-    "LKMNH.IS",
-    "LMKDC.IS",
-    "LOGO.IS",
-    "LUKSK.IS",
-    "MAALT.IS",
-    "MAKIM.IS",
-    "MAKTK.IS",
-    "MANAS.IS",
-    "MARKA.IS",
-    "MARTI.IS",
-    "MAVI.IS",
-    "MEDTR.IS",
-    "MEGAP.IS",
-    "MEKAG.IS",
-    "MEPET.IS",
-    "MERCN.IS",
-    "MERKO.IS",
-    "METUR.IS",
-    "MGROS.IS",
-    "MIATK.IS",
-    "MMCAS.IS",
-    "MNDRS.IS",
-    "MNDTR.IS",
-    "MOBTL.IS",
-    "MPARK.IS",
-    "MRGYO.IS",
-    "MTRKS.IS",
-    "MTRYO.IS",
-    "MZHLD.IS",
-    "NATEN.IS",
-    "NETAS.IS",
-    "NIBAS.IS",
-    "NTHOL.IS",
-    "NUGYO.IS",
-    "NUHCM.IS",
-    "OBAMS.IS",
-    "OBASE.IS",
-    "ODAS.IS",
-    "OFSYM.IS",
-    "ONCSM.IS",
-    "ORCAY.IS",
-    "OYYAT.IS",
-    "OZAKD.IS",
-    "OZGYO.IS",
-    "OZKGY.IS",
-    "OZLTM.IS",
-    "OZRDN.IS",
-    "PAKRD.IS",
-    "PAMEL.IS",
-    "PAPIL.IS",
-    "PARSN.IS",
-    "PASEU.IS",
-    "PCILT.IS",
-    "PEKGY.IS",
-    "PENGD.IS",
-    "PENTA.IS",
-    "PETKM.IS",
-    "PETUN.IS",
-    "PGSUS.IS",
-    "PINSU.IS",
-    "PKART.IS",
-    "PKENT.IS",
-    "PNSUT.IS",
-    "POLHO.IS",
-    "POLTK.IS",
-    "PRDGS.IS",
-    "PRKME.IS",
-    "PRKAB.IS",
-    "PSGYO.IS",
-    "QNBFB.IS",
-    "QNBFL.IS",
-    "QUAGR.IS",
-    "RALYH.IS",
-    "REEDR.IS",
-    "RNPOL.IS",
-    "RODRG.IS",
-    "ROYAL.IS",
-    "RTALB.IS",
-    "RUBNS.IS",
-    "RYGYO.IS",
-    "RYSAS.IS",
-    "SAFKR.IS",
-    "SAHOL.IS",
-    "SASA.IS",
-    "SAYAS.IS",
-    "SDTTR.IS",
-    "SEGFO.IS",
-    "SEGYO.IS",
-    "SEKFK.IS",
-    "SEKUR.IS",
-    "SELEC.IS",
-    "SELVA.IS",
-    "SEYKM.IS",
-    "SILVR.IS",
-    "SISE.IS",
-    "SKBNK.IS",
-    "SKTAS.IS",
-    "SMART.IS",
-    "SMRTG.IS",
-    "SNGYO.IS",
-    "SNICA.IS",
-    "SNPAM.IS",
-    "SODSN.IS",
-    "SOKM.IS",
-    "SONME.IS",
-    "SRVGY.IS",
-    "SUMAS.IS",
-    "SUNTK.IS",
-    "SUWEN.IS",
-    "TABGD.IS",
-    "TARKM.IS",
-    "TATEN.IS",
-    "TATGD.IS",
-    "TAVHL.IS",
-    "TBORG.IS",
-    "TCELL.IS",
-    "TCKRC.IS",
-    "TDGYO.IS",
-    "TEKTU.IS",
-    "TETMT.IS",
-    "TEZOL.IS",
-    "TGSAS.IS",
-    "THYAO.IS",
-    "TKFEN.IS",
-    "TKNSA.IS",
-    "TMPOL.IS",
-    "TMSN.IS",
-    "TOASO.IS",
-    "TRCAS.IS",
-    "TRGYO.IS",
-    "TRMET.IS",
-    "TSKB.IS",
-    "TSPOR.IS",
-    "TTKOM.IS",
-    "TTRAK.IS",
-    "TUCLK.IS",
-    "TUPRS.IS",
-    "TURSG.IS",
-    "UFUK.IS",
-    "ULAS.IS",
-    "ULUFA.IS",
-    "ULKER.IS",
-    "ULUUN.IS",
-    "VAKBN.IS",
-    "VAKFN.IS",
-    "VAKGY.IS",
-    "VBTYZ.IS",
-    "VERTU.IS",
-    "VERUS.IS",
-    "VESBE.IS",
-    "VESTL.IS",
-    "VKFYO.IS",
-    "VKGYO.IS",
-    "VKING.IS",
-    "YAPRK.IS",
-    "YATAS.IS",
-    "YAYLA.IS",
-    "YBTAS.IS",
-    "YEOTK.IS",
-    "YESIL.IS",
-    "YGGYO.IS",
-    "YIGIT.IS",
-    "YKBNK.IS",
-    "YKSL.IS",
-    "YUNSA.IS",
-    "YYAPI.IS",
-    "ZEDUR.IS",
-    "ZOREN.IS",
-    "ZRGYO.IS",
+    "AAVST.IS", "ACSEL.IS", "ADEL.IS", "ADESE.IS", "ADGYO.IS", "AEFES.IS", "AFYON.IS", "AGESA.IS", "AGHOL.IS", "AGROT.IS",
+    "AKBNK.IS", "AKENR.IS", "AKFGY.IS", "AKFYE.IS", "AKGRT.IS", "AKMGY.IS", "AKSA.IS", "AKSEN.IS", "AKSGY.IS", "ALARK.IS",
+    "ALBRK.IS", "ALCAR.IS", "ALCTL.IS", "ALFAS.IS", "ALKA.IS", "ALKIM.IS", "ALKLC.IS", "ALMAT.IS", "ANELE.IS", "ANGEN.IS",
+    "ANHYT.IS", "ANSGR.IS", "ARASE.IS", "ARCLK.IS", "ARDYZ.IS", "ARENA.IS", "ARSAN.IS", "ARTMS.IS", "ARZUM.IS", "ASELS.IS",
+    "ASTOR.IS", "ASUZU.IS", "ATAKP.IS", "ATATP.IS", "ATEKS.IS", "ATLAS.IS", "AVGYO.IS", "AVOD.IS", "AVPGY.IS", "AYCES.IS",
+    "AYDEM.IS", "AYEN.IS", "AYES.IS", "AYGAZ.IS", "AZTEK.IS", "BAGFS.IS", "BAKAB.IS", "BALAT.IS", "BANVT.IS", "BARMA.IS",
+    "BASCM.IS", "BASGZ.IS", "BAYRK.IS", "BEGYO.IS", "BERA.IS", "BEYAZ.IS", "BIENY.IS", "BIGCH.IS", "BIMAS.IS", "BINHO.IS",
+    "BIOEN.IS", "BIZIM.IS", "BJKAS.IS", "BLCYT.IS", "BMSCH.IS", "BMSTL.IS", "BNTAS.IS", "BOBET.IS", "BORLS.IS", "BOSSA.IS",
+    "BRISA.IS", "BRKO.IS", "BRKSN.IS", "BRLSM.IS", "BRMEN.IS", "BRYAT.IS", "BSOKE.IS", "BTCIM.IS", "BUCIM.IS", "BURCE.IS",
+    "BURVA.IS", "BVSAN.IS", "BYDNR.IS", "CANTE.IS", "CASFY.IS", "CCOLA.IS", "CELHA.IS", "CEMAS.IS", "CEMTS.IS", "CEOEM.IS",
+    "CGCAM.IS", "CIMSA.IS", "CLEBI.IS", "CMBTN.IS", "CMENT.IS", "CONSE.IS", "COSMO.IS", "CRDFA.IS", "CRFSA.IS", "CUSAN.IS",
+    "CVKMD.IS", "CWENE.IS", "DAGI.IS", "DAPGM.IS", "DARDL.IS", "DENGE.IS", "DERHL.IS", "DERIM.IS", "DESA.IS", "DESPC.IS",
+    "DEVA.IS", "DIRIT.IS", "DITAS.IS", "DMRGD.IS", "DMSAS.IS", "DNISI.IS", "DOAS.IS", "DOBUR.IS", "DOCO.IS", "DOGUB.IS",
+    "DOHOL.IS", "DSTAN.IS", "DUNYA.IS", "DURDO.IS", "DYOBY.IS", "DZGYO.IS", "EBEBK.IS", "ECILC.IS", "ECZYT.IS", "EDIP.IS",
+    "EGEEN.IS", "EGEPO.IS", "EGGUB.IS", "EGPRO.IS", "EGSER.IS", "EKGYO.IS", "EKOS.IS", "EKSUN.IS", "ELITE.IS", "EMKEL.IS",
+    "ENERY.IS", "ENKAI.IS", "ENJSA.IS", "EPLAS.IS", "ERBOS.IS", "EREGL.IS", "ERSU.IS", "ESCAR.IS", "ESCOM.IS", "ESEN.IS",
+    "ETILR.IS", "EUHOL.IS", "EUKYO.IS", "EUPWR.IS", "EUREN.IS", "EUYO.IS", "EYGYO.IS", "FADE.IS", "FENER.IS", "FLAP.IS",
+    "FMIZP.IS", "FONET.IS", "FORMT.IS", "FRIGO.IS", "FROTO.IS", "GARAN.IS", "GARFA.IS", "GEDIK.IS", "GEDZA.IS", "GENIL.IS",
+    "GENTS.IS", "GEREL.IS", "GESAN.IS", "GLBMD.IS", "GLCVY.IS", "GLRYH.IS", "GLYHO.IS", "GMTAS.IS", "GOKNR.IS", "GOLTS.IS",
+    "GOODY.IS", "GOZDE.IS", "GRNYO.IS", "GRSEL.IS", "GTRGY.IS", "GUBRF.IS", "GWIND.IS", "GZNMI.IS", "HALKB.IS", "HATEK.IS",
+    "HATSN.IS", "HEDEF.IS", "HEKTS.IS", "HKTM.IS", "HLGYO.IS", "HTTBT.IS", "HUBVC.IS", "HURGZ.IS", "ICBCT.IS", "IDEAS.IS",
+    "IDGYO.IS", "IENTS.IS", "IHEVA.IS", "IHGZT.IS", "IHLAS.IS", "IHLGM.IS", "IMASM.IS", "INDES.IS", "INFO.IS", "INGRM.IS",
+    "INTEM.IS", "INVEO.IS", "INVES.IS", "IPEKE.IS", "ISATR.IS", "ISBIR.IS", "ISBTR.IS", "ISCEN.IS", "ISCTR.IS", "ISFIN.IS",
+    "ISGSY.IS", "ISGYO.IS", "ISKPL.IS", "ISKUR.IS", "ISMEN.IS", "ISSEN.IS", "IZENR.IS", "IZFAS.IS", "IZINV.IS", "JANTS.IS",
+    "KAPLM.IS", "KAREL.IS", "KARSN.IS", "KARTN.IS", "KARYE.IS", "KATMR.IS", "KAYSE.IS", "KBORU.IS", "KCAER.IS", "KCHOL.IS",
+    "KENT.IS", "KERVT.IS", "KFEIN.IS", "KGYO.IS", "KIMMR.IS", "KLGYO.IS", "KLKIM.IS", "KLRHO.IS", "KLMSN.IS", "KLSER.IS",
+    "KLSYN.IS", "KMPUR.IS", "KNFRT.IS", "KONTR.IS", "KONYA.IS", "KOPOL.IS", "KORDS.IS", "KOTON.IS", "KOZAA.IS", "KOZAL.IS",
+    "KRDMD.IS", "KRGYO.IS", "KRONT.IS", "KRPLS.IS", "KRSTL.IS", "KRTEK.IS", "KZBGY.IS", "KZYGZ.IS", "LIDER.IS", "LIDFA.IS",
+    "LKMNH.IS", "LMKDC.IS", "LOGO.IS", "LUKSK.IS", "MAALT.IS", "MAKIM.IS", "MAKTK.IS", "MANAS.IS", "MARKA.IS", "MARTI.IS",
+    "MAVI.IS", "MEDTR.IS", "MEGAP.IS", "MEKAG.IS", "MEPET.IS", "MERCN.IS", "MERKO.IS", "METUR.IS", "MGROS.IS", "MIATK.IS",
+    "MMCAS.IS", "MNDRS.IS", "MNDTR.IS", "MOBTL.IS", "MPARK.IS", "MRGYO.IS", "MTRKS.IS", "MTRYO.IS", "MZHLD.IS", "NATEN.IS",
+    "NETAS.IS", "NIBAS.IS", "NTHOL.IS", "NUGYO.IS", "NUHCM.IS", "OBAMS.IS", "OBASE.IS", "ODAS.IS", "OFSYM.IS", "ONCSM.IS",
+    "ORCAY.IS", "OYYAT.IS", "OZAKD.IS", "OZGYO.IS", "OZKGY.IS", "OZLTM.IS", "OZRDN.IS", "PAKRD.IS", "PAMEL.IS", "PAPIL.IS",
+    "PARSN.IS", "PASEU.IS", "PCILT.IS", "PEKGY.IS", "PENGD.IS", "PENTA.IS", "PETKM.IS", "PETUN.IS", "PGSUS.IS", "PINSU.IS",
+    "PKART.IS", "PKENT.IS", "PNSUT.IS", "POLHO.IS", "POLTK.IS", "PRDGS.IS", "PRKME.IS", "PRKAB.IS", "PSGYO.IS", "QNBFB.IS",
+    "QNBFL.IS", "QUAGR.IS", "RALYH.IS", "REEDR.IS", "RNPOL.IS", "RODRG.IS", "ROYAL.IS", "RTALB.IS", "RUBNS.IS", "RYGYO.IS",
+    "RYSAS.IS", "SAFKR.IS", "SAHOL.IS", "SASA.IS", "SAYAS.IS", "SDTTR.IS", "SEGFO.IS", "SEGYO.IS", "SEKFK.IS", "SEKUR.IS",
+    "SELEC.IS", "SELVA.IS", "SEYKM.IS", "SILVR.IS", "SISE.IS", "SKBNK.IS", "SKTAS.IS", "SMART.IS", "SMRTG.IS", "SNGYO.IS",
+    "SNICA.IS", "SNPAM.IS", "SODSN.IS", "SOKM.IS", "SONME.IS", "SRVGY.IS", "SUMAS.IS", "SUNTK.IS", "SUWEN.IS", "TABGD.IS",
+    "TARKM.IS", "TATEN.IS", "TATGD.IS", "TAVHL.IS", "TBORG.IS", "TCELL.IS", "TCKRC.IS", "TDGYO.IS", "TEKTU.IS", "TETMT.IS",
+    "TEZOL.IS", "TGSAS.IS", "THYAO.IS", "TKFEN.IS", "TKNSA.IS", "TMPOL.IS", "TMSN.IS", "TOASO.IS", "TRCAS.IS", "TRGYO.IS",
+    "TRMET.IS", "TSKB.IS", "TSPOR.IS", "TTKOM.IS", "TTRAK.IS", "TUCLK.IS", "TUPRS.IS", "TURSG.IS", "UFUK.IS", "ULAS.IS",
+    "ULUFA.IS", "ULKER.IS", "ULUUN.IS", "VAKBN.IS", "VAKFN.IS", "VAKGY.IS", "VBTYZ.IS", "VERTU.IS", "VERUS.IS", "VESBE.IS",
+    "VESTL.IS", "VKFYO.IS", "VKGYO.IS", "VKING.IS", "YAPRK.IS", "YATAS.IS", "YAYLA.IS", "YBTAS.IS", "YEOTK.IS", "YESIL.IS",
+    "YGGYO.IS", "YIGIT.IS", "YKBNK.IS", "YKSL.IS", "YUNSA.IS", "YYAPI.IS", "ZEDUR.IS", "ZOREN.IS", "ZRGYO.IS",
 ]
 
 
@@ -511,6 +107,22 @@ def calculate_hma(series, period=20):
   raw_hma = 2 * wma_half - wma_full
   hma = wma(raw_hma, sqrt_per)
   return hma
+
+
+def calculate_strend(df, period=2, multiplier=1):
+  hl2 = (df["High"] + df["Low"]) / 2
+  tr = pd.concat([
+      df["High"] - df["Low"],
+      (df["High"] - df["Close"].shift()).abs(),
+      (df["Low"] - df["Close"].shift()).abs()
+  ], axis=1).max(axis=1)
+  atr = tr.rolling(period).mean()
+  return hl2 + (multiplier * atr)
+
+
+def calculate_ott(df, period=2, percent=3):
+  ema = df["Close"].ewm(span=period, adjust=False).mean()
+  return ema * (1 - percent / 100.0)
 
 
 def check_wave_margins(df):
@@ -616,9 +228,6 @@ def hafiza_kaydet(hafiza):
 
 
 def piyasa_zaman_kontrolu():
-  # İSTEDİĞİN ZAMAN MANUEL ÇALIŞTIRABİLMEK İÇİN:
-  # Kodun başına FORCE_RUN=true ekleyerek veya buradaki return True ile saat sınırını esnetebilirsin.
-  # Şu an manuel test edebilmen için doğrudan True döndürüyor veya ortam değişkenini baz alıyor:
   if os.environ.get("FORCE_RUN", "true").lower() == "true":
     return True
 
@@ -656,7 +265,6 @@ def run_scanner():
       " merkezi hafıza ile taratılıyor..."
   )
 
-  # Tek merkezi hafızayı yükle
   tum_hafiza = hafiza_yukle()
 
   for tf in TIMEFRAMES:
@@ -664,7 +272,6 @@ def run_scanner():
     label = tf["label"]
     kural_tipi = tf["kural_tipi"]
 
-    # Kural tipine ait hafıza sözlüğünü ayarla
     if kural_tipi not in tum_hafiza:
       tum_hafiza[kural_tipi] = {}
     kural_hafizasi = tum_hafiza[kural_tipi]
@@ -680,7 +287,7 @@ def run_scanner():
         df = yf.download(
             clean_ticker, period="1mo", interval=period, progress=False
         )
-        time.sleep(0.25)  # Rate limit önlemi
+        time.sleep(0.25)
 
         if df.empty or len(df) < 40:
           continue
@@ -820,28 +427,29 @@ def run_scanner():
           ):
             sinyal_var = True
 
-        # --- 4H ORİJİNAL KURAL SETİ ---
-        elif kural_tipi == "4h":
-          hma20 = calculate_hma(close, 20)
-          hma20_curr = hma20.iloc[-1]
-          supertrend_green = check_supertrend(df)
+        # --- SÜPER 1 SAAT KURAL SETİ (2. ve 3. Görsel Birleşimi) ---
+        elif kural_tipi == "1h_super":
+          strend_val = calculate_strend(df, period=2, multiplier=1).iloc[-1]
+          ott_val = calculate_ott(df, period=2, percent=3).iloc[-1]
+          
+          high_curr = high.iloc[-1]
+          prev_high = high.iloc[-2]
+          prev_close = close.iloc[-2]
+          curr_volume = volume.iloc[-1]
+          prev_volume = volume.iloc[-2]
 
-          mfi_prev = mfi.iloc[-2]
-          fibo_mfi_crossover = (mfi_prev < 50) and (mfi_curr >= 50)
+          # Görsel 2 koşulları: C=H (kapanış yüksekte) ve ROC >= 1
+          c_equals_h = close_curr >= (high_curr * 0.999)
+          roc_val = ((close_curr - prev_close) / prev_close) * 100
+          sart_c_h_roc = c_equals_h and (roc_val >= 1.0)
 
-          plus_di_prev = plus_di.iloc[-2]
-          minus_di_prev = minus_di.iloc[-2]
-          di_crossover_4h = (plus_di_prev <= minus_di_prev) and (
-              plus_di_curr > minus_di_curr
-          )
+          # Görsel 3 koşulları: STrend, OTT, REF ve Hacim teyidi
+          sart_strend = close_curr > (strend_val * 1.002)
+          sart_ott = close_curr > (ott_val * 1.002)
+          sart_high_ref = high_curr > (prev_high * 1.0015)
+          sart_volume = curr_volume > prev_volume
 
-          if (
-              supertrend_green
-              and (close_curr > hma20_curr)
-              and fibo_mfi_crossover
-              and (plus_di_curr > 30)
-              and di_crossover_4h
-          ):
+          if sart_c_h_roc and sart_strend and sart_ott and sart_high_ref and sart_volume:
             sinyal_var = True
 
         if sinyal_var:
@@ -851,6 +459,7 @@ def run_scanner():
             zaman_str = datetime.now(TZ_TR).strftime("%H:%M")
 
             ilk_destek, ilk_direnc = hesapla_fibonacci_destek_direnc(df)
+            rvol_curr = volume.iloc[-1] / (volume.rolling(20).mean().iloc[-1] + 1e-10)
 
             baslik = f"BIST {label} Sinyal"
             mesaj = (
