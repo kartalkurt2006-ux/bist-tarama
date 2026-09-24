@@ -616,6 +616,12 @@ def hafiza_kaydet(hafiza):
 
 
 def piyasa_zaman_kontrolu():
+  # İSTEDİĞİN ZAMAN MANUEL ÇALIŞTIRABİLMEK İÇİN:
+  # Kodun başına FORCE_RUN=true ekleyerek veya buradaki return True ile saat sınırını esnetebilirsin.
+  # Şu an manuel test edebilmen için doğrudan True döndürüyor veya ortam değişkenini baz alıyor:
+  if os.environ.get("FORCE_RUN", "true").lower() == "true":
+    return True
+
   simdi = datetime.now(TZ_TR)
   if simdi.weekday() >= 5:  # Hafta sonu
     return False
