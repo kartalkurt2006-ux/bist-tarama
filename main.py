@@ -32,7 +32,7 @@ TIMEFRAMES = [
     },
     {
         "period": "1h",
-        "label": "1 Saatlik (Dalga Marj + MFI > 55 + +DI > 20 + CMF > 0)",
+        "label": "1 Saatlik (Dalga Marj + RSI > 50 + +DI > 25 + HMA20)",
         "kural_tipi": "1h_dalga_gorsel",
     },
     {
@@ -412,7 +412,7 @@ def run_scanner():
           ):
             sinyal_var = True
 
-        # --- 1H DALGA MARJLI KURAL SETİ ---
+        # --- 1H DALGA MARJLI KURAL SETİ (Güncellendi) ---
         elif kural_tipi == "1h_dalga_gorsel":
           hma20 = calculate_hma(close, 20)
           hma20_curr = hma20.iloc[-1]
@@ -420,14 +420,13 @@ def run_scanner():
 
           if (
               (close_curr > hma20_curr)
-              and (mfi_curr > 55)
-              and (plus_di_curr > 20)
-              and (cmf_curr > 0)
+              and (rsi_curr > 50)
+              and (plus_di_curr > 25)
               and wave_breakout
           ):
             sinyal_var = True
 
-        # --- SÜPER 1 SAAT KURAL SETİ (2. ve 3. Görsel Birleşimi) ---
+        # --- SÜPER 1 SAAT KURAL SETİ (Dokunulmadı) ---
         elif kural_tipi == "1h_super":
           strend_val = calculate_strend(df, period=2, multiplier=1).iloc[-1]
           ott_val = calculate_ott(df, period=2, percent=3).iloc[-1]
