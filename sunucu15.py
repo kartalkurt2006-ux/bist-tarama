@@ -4,6 +4,7 @@ import os
 import time
 from threading import Thread
 from flask import Flask
+import numpy as np
 import pandas as pd
 import pytz
 import requests
@@ -12,15 +13,12 @@ import yfinance as yf
 app = Flask(__name__)
 
 # --- AYARLAR VE SABİTLER ---
-MEMORY_FILE_15M = "hafiza_15m_yeni_strateji.json"
-MEMORY_FILE_FIB = "hafiza_fib_mfi.json"
+MEMORY_FILE = "hafiza_wave_mfi.json"
 COOLDOWN_SECONDS = 1800  # Aynı hisse için 30 dakika bekleme süresi
 TZ_TR = pytz.timezone("Europe/Istanbul")
+NTFY_URL = "https://ntfy.sh/borsa_senet"
 
-NTFY_URL_15M = "https://ntfy.sh/borsa_senet"
-NTFY_URL_FIB = "https://ntfy.sh/borsa_senet"  # İstersen farklı kanal yapabilirsin
-
-# BIST Tüm Hisseler Listesi (Yan Yana)
+# BIST Tüm Hisseler Listesi
 STOCKS = [
     "AAVST.IS",
     "ACSEL.IS",
@@ -483,36 +481,106 @@ def piyasa_zaman_kontrolu():
   return baslangic <= simdi <= bitis
 
 
-# --- 15M YENİ STRATEJİ FONKSİYONLARI ---
-def hafiza_yukle_15m():
-  if os.path.exists(MEMORY_FILE_15M):
+def hafiza_yukle():
+  if os.path.exists(MEMORY_FILE):
     try:
-      with open(MEMORY_FILE_15M, "r") as f:
+      with open(MEMORY_FILE, "r") as f:
         return json.load(f)
     except:
       return {}
   return {}
 
 
-def hafiza_kaydet_15m(hafiza):
-  with open(MEMORY_FILE_15M, "w") as f:
+def hafiza_kaydet(hafiza):
+  with open(MEMORY_FILE, "w") as f:
     json.dump(hafiza, f)
 
 
-def send_ntfy_15m(message):
+def send_ntfy(message):
   try:
-    headers = {"Title": "BIST 15m Yeni Sinyal", "Priority": "high"}
+    headers = {
+        "Title": "15m Hibrit Erken Patlama Sinyali",
+        "Priority": "high",
+    }
     requests.post(
-        NTFY_URL_15M, data=message.encode("utf-8"), headers=headers, timeout=10
+        NTFY_URL, data=message.encode("utf-8"), headers=headers, timeout=10
     )
   except Exception as e:
-    print(f"Bildirim Hatası 15m: {e}")
+    print(f"Bildirim Hatası: {e}")
 
 
-def run_scanner_15m():
+def calculate_supertrend(df, period=10, multiplier=3):
+  hl2 = (df["High"] + df["Low"]) / 2
+  tr1 = df["High"] - df["Low"]
+  tr2 = (df["High"] - df["Close"].shift(1)).abs()
+  tr3 = (df["Low"] - df["Close"].shift(1)).abs()
+  tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+  atr = tr.rolling(window=period).mean()
+
+  upper_basic = hl2 + (multiplier * atr)
+  lower_basic = hl2 - (multiplier * atr)
+
+  upper_band = upper_basic.copy()
+  lower_band = lower_basic.copy()
+
+  direction = pd.Series(1, index=df.index)
+  st = pd.Series(index=df.index, dtype="float64")
+
+  for i in range(1, len(df)):
+    curr_close = df["Close"].iloc[i]
+    if curr_close > upper_band.iloc[i]:
+      direction.iloc[i] = 1
+    elif curr_close < lower_band.iloc[i]:
+      direction.iloc[i] = -1
+    else:
+      direction.iloc[i] = direction.iloc[i - 1]
+      if (
+          direction.iloc[i] == 1
+          and lower_band.iloc[i] < lower_band.iloc[i - 1]
+      ):
+        lower_band.iloc[i] = lower_band.iloc[i - 1]
+      if (
+          direction.iloc[i] == -1
+          and upper_band.iloc[i] > upper_band.iloc[i - 1]
+      ):
+        upper_band.iloc[i] = upper_band.iloc[i - 1]
+
+    st.iloc[i] = (
+        lower_band.iloc[i] if direction.iloc[i] == 1 else upper_band.iloc[i]
+    )
+
+  return st
+
+
+def hesapla_fibonacci(df, window=100):
+  # Son 'window' mum içindeki en yüksek ve en düşük seviyeyi bul
+  recent_df = df.tail(window)
+  max_high = recent_df["High"].max()
+  min_low = recent_df["Low"].min()
+  diff = max_high - min_low
+
+  curr_price = df["Close"].iloc[-1]
+
+  # Standart Fibonacci Seviyeleri
+  fib_ratios = [0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0]
+  # Düşüş veya yükseliş yönüne göre seviye listesi
+  levels = [min_low + (diff * r) for r in fib_ratios]
+  levels.sort()
+
+  # Fiyatın hemen altındaki ilk destek ve hemen üstündeki ilk direnç
+  destekler = [lvl for lvl in levels if lvl < curr_price]
+  direncler = [lvl for lvl in levels if lvl > curr_price]
+
+  ilk_destek = destekler[-1] if destekler else min_low
+  ilk_direnc = direncler[0] if direncler else max_high
+
+  return ilk_destek, ilk_direnc
+
+
+def run_scanner():
   if not piyasa_zaman_kontrolu():
     return
-  hafiza = hafiza_yukle_15m()
+  hafiza = hafiza_yukle()
   simdi_epoch = time.time()
 
   for ticker in STOCKS:
@@ -521,7 +589,7 @@ def run_scanner_15m():
       df = yf.download(
           clean_ticker, period="60d", interval="15m", progress=False
       )
-      if df.empty or len(df) < 30:
+      if df.empty or len(df) < 50:
         continue
       if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
@@ -533,165 +601,103 @@ def run_scanner_15m():
           df["Volume"],
       )
 
+      # 1. Supertrend Hesaplama ve Yüzdesel Kırılım Kontrolü (* 1.002)
+      st = calculate_supertrend(df)
+      st_breakout = close.iloc[-1] > (st.iloc[-1] * 1.002)
+
+      # 2. Hacim Kriterleri (Hacim Artışı + Göreceli Hacim RVOL > 0.6)
+      vol_ma20 = volume.rolling(window=20).mean()
+      rvol = volume.iloc[-1] / (vol_ma20.iloc[-1] + 1e-10)
+      volume_growth = volume.iloc[-1] > volume.iloc[-2]
+      rvol_check = rvol > 0.6
+
+      # 3. Bollinger Üst Bant Kontrolü (Üst bant kırılımı veya üstünde seyretme)
+      sma20 = close.rolling(window=20).mean()
+      std20 = close.rolling(window=20).std()
+      upper_band = sma20 + (std20 * 2)
+      bollinger_check = close.iloc[-1] >= upper_band.iloc[-1]
+
+      # 4. MFI (14 Periyot) > 29
+      typical_price = (high + low + close) / 3
+      money_flow = typical_price * volume
+      positive_flow = (
+          money_flow.where(typical_price > typical_price.shift(1), 0)
+          .rolling(14)
+          .sum()
+      )
+      negative_flow = (
+          money_flow.where(typical_price < typical_price.shift(1), 0)
+          .rolling(14)
+          .sum()
+      )
+      mfi = 100 - (100 / (1 + (positive_flow / (negative_flow + 1e-10))))
+      mfi_curr = mfi.iloc[-1]
+      mfi_check = mfi_curr > 29
+
+      # 5. +DI (14 Periyot) > 20 (Erken uyanış için esnetildi)
+      up_move = high.diff()
+      down_move = -low.diff()
+      plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+      tr1 = high - low
+      tr2 = (high - close.shift(1)).abs()
+      tr3 = (low - close.shift(1)).abs()
+      tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+      atr = tr.rolling(14).mean()
+      plus_di = (
+          pd.Series(plus_dm, index=df.index).rolling(14).mean()
+          / (atr + 1e-10)
+      ) * 100
+      plus_di_curr = plus_di.iloc[-1]
+      di_check = plus_di_curr > 20
+
+      # 6. RSI (14 Periyot) > 50
       delta = close.diff()
       gain = delta.where(delta > 0, 0).rolling(14).mean()
       loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
       rs = gain / (loss + 1e-10)
       rsi = 100 - (100 / (1 + rs))
+      rsi_curr = rsi.iloc[-1]
+      rsi_check = rsi_curr > 50
 
-      typical_price = (high + low + close) / 3
-      money_flow = typical_price * volume
-      positive_flow = (
-          money_flow.where(typical_price > typical_price.shift(1), 0)
-          .rolling(14)
-          .sum()
-      )
-      negative_flow = (
-          money_flow.where(typical_price < typical_price.shift(1), 0)
-          .rolling(14)
-          .sum()
-      )
-      mfi = 100 - (100 / (1 + (positive_flow / (negative_flow + 1e-10))))
-
-      mf_multiplier = ((close - low) - (high - close)) / ((high - low) + 1e-10)
-      cmf = (mf_multiplier * volume).rolling(20).sum() / (
-          volume.rolling(20).sum() + 1e-10
-      )
-
-      up_move = high.diff()
-      down_move = -low.diff()
-      plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0)
-      tr = pd.concat(
-          [
-              high - low,
-              (high - close.shift(1)).abs(),
-              (low - close.shift(1)).abs(),
-          ],
-          axis=1,
-      ).max(axis=1)
-      plus_di = 100 * (
-          plus_dm.rolling(14).sum() / (tr.rolling(14).sum() + 1e-10)
-      )
-
+      # Tüm Şartların Birleşimi (Hibrit Erken Patlama + Bollinger Üst Bant)
       if (
-          (plus_di.iloc[-2] < 30 and plus_di.iloc[-1] >= 30)
-          and (mfi.iloc[-1] > 55)
-          and (cmf.iloc[-1] > 0)
-          and (rsi.iloc[-1] > 50)
+          st_breakout
+          and volume_growth
+          and rvol_check
+          and bollinger_check
+          and mfi_check
+          and di_check
+          and rsi_check
       ):
         if simdi_epoch - hafiza.get(clean_ticker, 0) > COOLDOWN_SECONDS:
           temiz_isim = clean_ticker.replace(".IS", "")
+          ilk_destek, ilk_direnc = hesapla_fibonacci(df)
+
           mesaj = (
-              f"🚀 *15m Yeni Sinyal*\n• Hisse: *{temiz_isim}* | Fiyat:"
-              f" {close.iloc[-1]:.2f}\n• +DI: {plus_di.iloc[-1]:.1f} | MFI:"
-              f" {mfi.iloc[-1]:.1f}"
+              f"🚀 *15m Hibrit Erken Patlama Sinyali*\n• Hisse:"
+              f" *{temiz_isim}* | Fiyat: {close.iloc[-1]:.2f}\n• 🟢 İlk Destek"
+              f" (Fib): {ilk_destek:.2f}\n• 🔴 İlk Direnç (Fib):"
+              f" {ilk_direnc:.2f}\n• MFI: {mfi_curr:.1f} | +DI:"
+              f" {plus_di_curr:.1f} | RSI: {rsi_curr:.1f} | RVOL: {rvol:.2f}"
           )
-          send_ntfy_15m(mesaj)
+          send_ntfy(mesaj)
           hafiza[clean_ticker] = simdi_epoch
-          hafiza_kaydet_15m(hafiza)
-    except:
+          hafiza_kaydet(hafiza)
+    except Exception as e:
       continue
 
 
-# --- FIBONACCI MFI STRATEJİ FONKSİYONLARI ---
-def hafiza_yukle_fib():
-  if os.path.exists(MEMORY_FILE_FIB):
-    try:
-      with open(MEMORY_FILE_FIB, "r") as f:
-        return json.load(f)
-    except:
-      return {}
-  return {}
-
-
-def hafiza_kaydet_fib(hafiza):
-  with open(MEMORY_FILE_FIB, "w") as f:
-    json.dump(hafiza, f)
-
-
-def send_ntfy_fib(message):
-  try:
-    headers = {"Title": "Fibonacci MFI Sinyal", "Priority": "high"}
-    requests.post(
-        NTFY_URL_FIB, data=message.encode("utf-8"), headers=headers, timeout=10
-    )
-  except Exception as e:
-    print(f"Bildirim Hatası Fib: {e}")
-
-
-def run_scanner_fib():
-  if not piyasa_zaman_kontrolu():
-    return
-  hafiza = hafiza_yukle_fib()
-  simdi_epoch = time.time()
-
-  for ticker in STOCKS:
-    clean_ticker = ticker.strip()
-    try:
-      df = yf.download(
-          clean_ticker, period="60d", interval="15m", progress=False
-      )
-      if df.empty or len(df) < 30:
-        continue
-      if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-
-      high, low, close, volume = (
-          df["High"],
-          df["Low"],
-          df["Close"],
-          df["Volume"],
-      )
-
-      typical_price = (high + low + close) / 3
-      money_flow = typical_price * volume
-      positive_flow = (
-          money_flow.where(typical_price > typical_price.shift(1), 0)
-          .rolling(14)
-          .sum()
-      )
-      negative_flow = (
-          money_flow.where(typical_price < typical_price.shift(1), 0)
-          .rolling(14)
-          .sum()
-      )
-      mfi = 100 - (100 / (1 + (positive_flow / (negative_flow + 1e-10))))
-
-      mfi_curr = mfi.iloc[-1]
-      mfi_prev = mfi.iloc[-2]
-
-      if mfi_prev < 38.2 and mfi_curr >= 38.2:
-        if simdi_epoch - hafiza.get(clean_ticker, 0) > COOLDOWN_SECONDS:
-          temiz_isim = clean_ticker.replace(".IS", "")
-          mesaj = (
-              f"📊 *Fibonacci MFI Sinyal*\n• Hisse: *{temiz_isim}* | Fiyat:"
-              f" {close.iloc[-1]:.2f}\n• MFI Seviye: {mfi_curr:.1f}"
-          )
-          send_ntfy_fib(mesaj)
-          hafiza[clean_ticker] = simdi_epoch
-          hafiza_kaydet_fib(hafiza)
-    except:
-      continue
-
-
-# --- TÜM TARAMALARI TETİKLEYEN FONKSİYON ---
-def run_all_scanners():
-  run_scanner_15m()
-  run_scanner_fib()
-
-
-# --- FLASK SUNUCU ROTALARI ---
 @app.route("/")
 def home():
-  return "BIST Tüm Stratejiler Tarama Sunucusu Aktif!"
+  return "15m Hibrit Erken Patlama Tarama Sunucusu Aktif!"
 
 
 @app.route("/tara")
 def manual_scan():
-  Thread(target=run_all_scanners).start()
-  return "Tüm stratejiler (15m ve Fibonacci MFI) arka planda tetiklendi!"
+  Thread(target=run_scanner).start()
+  return "15m Hibrit Erken Patlama tarama arka planda tetiklendi!"
 
 
 if __name__ == "__main__":
-  port = int(os.environ.get("PORT", 5000))
+  port = int(os.environ.get("PORT", 5001))
   app.run(host="0.0.0.0", port=port)
