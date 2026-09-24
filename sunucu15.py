@@ -689,9 +689,19 @@ def home():
   return "Çoklu Periyot Hibrit Erken Patlama Tarama Sunucusu Aktif!"
 
 
+# Tek komutla hem 15m hem de 1h taramayı aynı anda tetikleyen rota
+@app.route("/tara")
+def manual_scan_all():
+  Thread(target=tarama_calistir, args=("15m",)).start()
+  Thread(target=tarama_calistir, args=("1h",)).start()
+  return (
+      "15m ve 1h Hibrit Erken Patlama taramaları aynı anda arka planda"
+      " tetiklendi!"
+  )
+
+
 @app.route("/tara_15m")
 def manual_scan_15m():
-  Thread(target=tarama_calistir, args=("15m",)).data = None
   Thread(target=tarama_calistir, args=("15m",)).start()
   return "15m Hibrit Erken Patlama taraması arka planda tetiklendi!"
 
