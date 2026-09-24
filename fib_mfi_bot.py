@@ -552,6 +552,31 @@ def calculate_supertrend(df, period=10, multiplier=3):
   return st
 
 
+def hesapla_fibonacci(df, window=100):
+  # Son 'window' mum içindeki en yüksek ve en düşük seviyeyi bul
+  recent_df = df.tail(window)
+  max_high = recent_df["High"].max()
+  min_low = recent_df["Low"].min()
+  diff = max_high - min_low
+
+  curr_price = df["Close"].iloc[-1]
+
+  # Standart Fibonacci Seviyeleri
+  fib_ratios = [0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0]
+  # Düşüş veya yükseliş yönüne göre seviye listesi
+  levels = [min_low + (diff * r) for r in fib_ratios]
+  levels.sort()
+
+  # Fiyatın hemen altındaki ilk destek ve hemen üstündeki ilk direnç
+  destekler = [lvl for lvl in levels if lvl < curr_price]
+  direncler = [lvl for lvl in levels if lvl > curr_price]
+
+  ilk_destek = destekler[-1] if destekler else min_low
+  ilk_direnc = direncler[0] if direncler else max_high
+
+  return ilk_destek, ilk_direnc
+
+
 def run_scanner():
   if not piyasa_zaman_kontrolu():
     return
@@ -564,7 +589,7 @@ def run_scanner():
       df = yf.download(
           clean_ticker, period="60d", interval="15m", progress=False
       )
-      if df.empty or len(df) < 40:
+      if df.empty or len(df) < 50:
         continue
       if isinstance(df.columns, pd.MultiIndex):
         df.columns = df.columns.get_level_values(0)
@@ -586,7 +611,13 @@ def run_scanner():
       volume_growth = volume.iloc[-1] > volume.iloc[-2]
       rvol_check = rvol > 0.6
 
-      # 3. MFI (14 Periyot) > 29
+      # 3. Bollinger Üst Bant Kontrolü (Üst bant kırılımı veya üstünde seyretme)
+      sma20 = close.rolling(window=20).mean()
+      std20 = close.rolling(window=20).std()
+      upper_band = sma20 + (std20 * 2)
+      bollinger_check = close.iloc[-1] >= upper_band.iloc[-1]
+
+      # 4. MFI (14 Periyot) > 29
       typical_price = (high + low + close) / 3
       money_flow = typical_price * volume
       positive_flow = (
@@ -603,7 +634,7 @@ def run_scanner():
       mfi_curr = mfi.iloc[-1]
       mfi_check = mfi_curr > 29
 
-      # 4. +DI (14 Periyot) > 29
+      # 5. +DI (14 Periyot) > 20 (Erken uyanış için esnetildi)
       up_move = high.diff()
       down_move = -low.diff()
       plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
@@ -617,9 +648,9 @@ def run_scanner():
           / (atr + 1e-10)
       ) * 100
       plus_di_curr = plus_di.iloc[-1]
-      di_check = plus_di_curr > 29
+      di_check = plus_di_curr > 20
 
-      # 5. RSI (14 Periyot) > 50
+      # 6. RSI (14 Periyot) > 50
       delta = close.diff()
       gain = delta.where(delta > 0, 0).rolling(14).mean()
       loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
@@ -628,22 +659,26 @@ def run_scanner():
       rsi_curr = rsi.iloc[-1]
       rsi_check = rsi_curr > 50
 
-      # Tüm Şartların Birleşimi (Hibrit Erken Patlama Avcısı)
+      # Tüm Şartların Birleşimi (Hibrit Erken Patlama + Bollinger Üst Bant)
       if (
           st_breakout
           and volume_growth
           and rvol_check
+          and bollinger_check
           and mfi_check
           and di_check
           and rsi_check
       ):
         if simdi_epoch - hafiza.get(clean_ticker, 0) > COOLDOWN_SECONDS:
           temiz_isim = clean_ticker.replace(".IS", "")
+          ilk_destek, ilk_direnc = hesapla_fibonacci(df)
+
           mesaj = (
               f"🚀 *15m Hibrit Erken Patlama Sinyali*\n• Hisse:"
-              f" *{temiz_isim}* | Fiyat: {close.iloc[-1]:.2f}\n• MFI:"
-              f" {mfi_curr:.1f} | +DI: {plus_di_curr:.1f} | RSI:"
-              f" {rsi_curr:.1f} | RVOL: {rvol:.2f}"
+              f" *{temiz_isim}* | Fiyat: {close.iloc[-1]:.2f}\n• 🟢 İlk Destek"
+              f" (Fib): {ilk_destek:.2f}\n• 🔴 İlk Direnç (Fib):"
+              f" {ilk_direnc:.2f}\n• MFI: {mfi_curr:.1f} | +DI:"
+              f" {plus_di_curr:.1f} | RSI: {rsi_curr:.1f} | RVOL: {rvol:.2f}"
           )
           send_ntfy(mesaj)
           hafiza[clean_ticker] = simdi_epoch
