@@ -2,8 +2,6 @@ from datetime import datetime
 import json
 import os
 import time
-import urllib.parse
-import urllib.request
 import numpy as np
 import pandas as pd
 import pytz
@@ -21,7 +19,7 @@ NTFY_URL = "https://ntfy.sh/borsa_senet"
 TIMEFRAMES = [
     {
         "period": "1h",
-        "label": "1 Saatlik (Dalga + +DI > 20)",
+        "label": "1 Saatlik (Dalga Marj + MFI > 55 + +DI > 20)",
         "memory": "hafiza_1h.json",
         "kural_tipi": "1h_dalga_gorsel",
     },
@@ -613,8 +611,8 @@ def run_scanner():
 
   simdi_epoch = time.time()
   print(
-      f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] 1h (Dalga + +DI >"
-      " 20) ve 4h (Orijinal) Tarama Başlatıldı..."
+      f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] 1h (Dalga Marj +"
+      " MFI+DI) ve 4h (Orijinal) Tarama Başlatıldı..."
   )
 
   for tf in TIMEFRAMES:
@@ -703,7 +701,7 @@ def run_scanner():
         sinyal_var = False
 
         if kural_tipi == "1h_dalga_gorsel":
-          # 1 Saatlik Yeni Kural: HMA20, MFI > 55, +DI > 20, CMF > 0 VE Dalga Marjı Kırılımı (4,8,5,8,9)
+          # 1 Saatlik Gelişmiş Kural: HMA20, MFI > 55, +DI > 20, CMF > 0 VE Dalga Marjı Kırılımı (4,8,5,8,9)
           hma20 = calculate_hma(close, 20)
           hma20_curr = hma20.iloc[-1]
 
@@ -719,7 +717,7 @@ def run_scanner():
             sinyal_var = True
 
         elif kural_tipi == "4h":
-          # 4 Saatlik Orijinal Kural (DMI Kesişimli)
+          # 4 Saatlik Orijinal Kural (DMI Kesişimli - Kesinlikle Dokunulmadı)
           hma20 = calculate_hma(close, 20)
           hma20_curr = hma20.iloc[-1]
 
