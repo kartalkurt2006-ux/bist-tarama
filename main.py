@@ -22,7 +22,7 @@ MERKEZI_HAFIZA_DOSYASI = "borsa_hafiza.json"
 TIMEFRAMES = [
     {
         "period": "15m",
-        "label": "15m Klasik (Bollinger + MFI>29 + +DI>20 + RSI>50 + RVOL>0.6 + Supertrend)",
+        "label": "bomba 15",
         "kural_tipi": "15m_klasik",
     },
     {
@@ -743,24 +743,36 @@ def run_scanner():
 
         sinyal_var = False
 
-        # --- 15M KLASİK KURAL SETİ ---
+        # --- BOMBA 15 KURAL SETİ ---
         if kural_tipi == "15m_klasik":
+          bar_sayisi = 6
+          recent_df = df.iloc[-(bar_sayisi + 1) : -1]
+          ort_high = recent_df["High"].mean()
+          ort_low = recent_df["Low"].mean()
+          ort_close = recent_df["Close"].mean()
+
+          pivot = (ort_high + ort_low + ort_close) / 3
+          birinci_dalga_marji = pivot * 1.0023
+
           sma20 = close.rolling(20).mean()
           std20 = close.rolling(20).std()
-          bb_lower = sma20 - (2 * std20)
-          rvol = volume / volume.rolling(20).mean()
-          supertrend_green = check_supertrend(df)
+          bb_middle = sma20.iloc[-1]
 
-          bb_lower_curr = bb_lower.iloc[-1]
+          rvol = volume / volume.rolling(20).mean()
           rvol_curr = rvol.iloc[-1]
 
+          prev_close = close.iloc[-2]
+          kapanis_teyit = (prev_close <= birinci_dalga_marji) and (
+              close_curr > birinci_dalga_marji
+          )
+
           if (
-              (close_curr > bb_lower_curr)
-              and (mfi_curr > 29)
-              and (plus_di_curr > 20)
+              kapanis_teyit
+              and (close_curr > bb_middle)
+              and (mfi_curr > 60)
+              and (cmf_curr > -0.20)
               and (rsi_curr > 50)
               and (rvol_curr > 0.6)
-              and supertrend_green
           ):
             sinyal_var = True
 
@@ -838,7 +850,8 @@ def run_scanner():
             mesaj = (
                 f"🚀 *BIST {label} Sinyal* ({zaman_str})\n• Hisse:"
                 f" *{temiz_isim}* | Fiyat: {close_curr:.2f}\n• MFI: {mfi_curr:.1f}"
-                f" | +DI: {plus_di_curr:.1f}\n• 🟢 İlk Destek:"
+                f" | CMF: {cmf_curr:.2f} | RSI: {rsi_curr:.1f} | RVOL:"
+                f" {rvol_curr:.2f}\n• 🟢 İlk Destek:"
                 f" {ilk_destek:.2f}\n• 🔴 İlk Direnç: {ilk_direnc:.2f}"
             )
 
