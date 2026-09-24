@@ -15,23 +15,34 @@ TZ_TR = pytz.timezone("Europe/Istanbul")
 # Ntfy Kanal Ayarı
 NTFY_URL = "https://ntfy.sh/borsa_senet"
 
-# Taranacak Periyotlar, Kuralları ve Hafıza Dosyaları
+# Tek Merkezi Hafıza Dosyası
+MERKEZI_HAFIZA_DOSYASI = "borsa_hafiza.json"
+
+# Taranacak Periyotlar ve Kuralları (Tek dosya yapısına uygun)
 TIMEFRAMES = [
     {
+        "period": "15m",
+        "label": "15m Klasik (Bollinger + MFI>29 + +DI>20 + RSI>50 + RVOL>0.6 + Supertrend)",
+        "kural_tipi": "15m_klasik",
+    },
+    {
+        "period": "15m",
+        "label": "15m Dalga Marjı (4-8-5-8-9 + Tüm Klasik Şartlar)",
+        "kural_tipi": "15m_dalga",
+    },
+    {
         "period": "1h",
-        "label": "1 Saatlik (Dalga Marj + MFI > 55 + +DI > 20)",
-        "memory": "hafiza_1h.json",
+        "label": "1 Saatlik (Dalga Marj + MFI > 55 + +DI > 20 + CMF > 0)",
         "kural_tipi": "1h_dalga_gorsel",
     },
     {
         "period": "4h",
         "label": "4 Saatlik (Orijinal DMI Kesişimli)",
-        "memory": "hafiza_4h.json",
         "kural_tipi": "4h",
     },
 ]
 
-# BIST Tüm Hisseler (Yan Yana Dizilmiş Kompakt Liste)
+# BIST Tüm Hisseler
 STOCKS = [
     "AAVST.IS",
     "ACSEL.IS",
@@ -513,7 +524,7 @@ def check_wave_margins(df):
       return False
 
     wave_sequence = [4, 8, 5, 8, 9]
-    total_cycle = sum(wave_sequence)  # 34
+    total_cycle = sum(wave_sequence)
 
     recent_high = np.max(high[-total_cycle:])
     recent_low = np.min(low[-total_cycle:])
@@ -589,19 +600,19 @@ def hesapla_fibonacci_destek_direnc(df, window=100):
     return float(curr_price * 0.95), float(curr_price * 1.05)
 
 
-def hafiza_yukle(dosya_adi):
-  if os.path.exists(dosya_adi):
+def hafiza_yukle():
+  if os.path.exists(MERKEZI_HAFIZA_DOSYASI):
     try:
-      with open(dosya_adi, "r") as f:
+      with open(MERKEZI_HAFIZA_DOSYASI, "r") as f:
         return json.load(f)
     except:
       return {}
   return {}
 
 
-def hafiza_kaydet(dosya_adi, hafiza):
-  with open(dosya_adi, "w") as f:
-    json.dump(hafiza, f)
+def hafiza_kaydet(hafiza):
+  with open(MERKEZI_HAFIZA_DOSYASI, "w") as f:
+    json.dump(hafiza, f, indent=4)
 
 
 def piyasa_zaman_kontrolu():
@@ -635,17 +646,23 @@ def run_scanner():
 
   simdi_epoch = time.time()
   print(
-      f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] 1h (Dalga Marj +"
-      " MFI+DI) ve 4h (Orijinal) Destek/Dirençli Tarama Başlatıldı..."
+      f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] Tüm periyotlar"
+      " merkezi hafıza ile taratılıyor..."
   )
+
+  # Tek merkezi hafızayı yükle
+  tum_hafiza = hafiza_yukle()
 
   for tf in TIMEFRAMES:
     period = tf["period"]
     label = tf["label"]
-    mem_file = tf["memory"]
     kural_tipi = tf["kural_tipi"]
 
-    hafiza = hafiza_yukle(mem_file)
+    # Kural tipine ait hafıza sözlüğünü ayarla
+    if kural_tipi not in tum_hafiza:
+      tum_hafiza[kural_tipi] = {}
+    kural_hafizasi = tum_hafiza[kural_tipi]
+
     print(
         f"--> {label} ({period}) taraması yapılıyor... Toplam Hisse:"
         f" {len(STOCKS)}"
@@ -657,6 +674,8 @@ def run_scanner():
         df = yf.download(
             clean_ticker, period="1mo", interval=period, progress=False
         )
+        time.sleep(0.25)  # Rate limit önlemi
+
         if df.empty or len(df) < 40:
           continue
 
@@ -668,7 +687,7 @@ def run_scanner():
         low = df["Low"]
         volume = df["Volume"]
 
-        # Ortak İndikatör Hesaplamaları
+        # --- ORTAK İNDİKATÖRLER ---
         delta = close.diff()
         gain = (delta.where(delta > 0, 0)).rolling(14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
@@ -724,11 +743,54 @@ def run_scanner():
 
         sinyal_var = False
 
-        if kural_tipi == "1h_dalga_gorsel":
-          # 1 Saatlik Gelişmiş Kural: HMA20, MFI > 55, +DI > 20, CMF > 0 VE Dalga Marjı Kırılımı (4,8,5,8,9)
+        # --- 15M KLASİK KURAL SETİ ---
+        if kural_tipi == "15m_klasik":
+          sma20 = close.rolling(20).mean()
+          std20 = close.rolling(20).std()
+          bb_lower = sma20 - (2 * std20)
+          rvol = volume / volume.rolling(20).mean()
+          supertrend_green = check_supertrend(df)
+
+          bb_lower_curr = bb_lower.iloc[-1]
+          rvol_curr = rvol.iloc[-1]
+
+          if (
+              (close_curr > bb_lower_curr)
+              and (mfi_curr > 29)
+              and (plus_di_curr > 20)
+              and (rsi_curr > 50)
+              and (rvol_curr > 0.6)
+              and supertrend_green
+          ):
+            sinyal_var = True
+
+        # --- 15M DALGA MARJLI KURAL SETİ ---
+        elif kural_tipi == "15m_dalga":
+          sma20 = close.rolling(20).mean()
+          std20 = close.rolling(20).std()
+          bb_lower = sma20 - (2 * std20)
+          rvol = volume / volume.rolling(20).mean()
+          supertrend_green = check_supertrend(df)
+          wave_breakout = check_wave_margins(df)
+
+          bb_lower_curr = bb_lower.iloc[-1]
+          rvol_curr = rvol.iloc[-1]
+
+          if (
+              (close_curr > bb_lower_curr)
+              and (mfi_curr > 29)
+              and (plus_di_curr > 20)
+              and (rsi_curr > 50)
+              and (rvol_curr > 0.6)
+              and supertrend_green
+              and wave_breakout
+          ):
+            sinyal_var = True
+
+        # --- 1H DALGA MARJLI KURAL SETİ ---
+        elif kural_tipi == "1h_dalga_gorsel":
           hma20 = calculate_hma(close, 20)
           hma20_curr = hma20.iloc[-1]
-
           wave_breakout = check_wave_margins(df)
 
           if (
@@ -740,11 +802,10 @@ def run_scanner():
           ):
             sinyal_var = True
 
+        # --- 4H ORİJİNAL KURAL SETİ ---
         elif kural_tipi == "4h":
-          # 4 Saatlik Orijinal Kural (DMI Kesişimli - Kesinlikle Dokunulmadı)
           hma20 = calculate_hma(close, 20)
           hma20_curr = hma20.iloc[-1]
-
           supertrend_green = check_supertrend(df)
 
           mfi_prev = mfi.iloc[-2]
@@ -766,12 +827,11 @@ def run_scanner():
             sinyal_var = True
 
         if sinyal_var:
-          son_gonderim = hafiza.get(clean_ticker, 0)
+          son_gonderim = kural_hafizasi.get(clean_ticker, 0)
           if simdi_epoch - son_gonderim > COOLDOWN_SECONDS:
             temiz_isim = clean_ticker.replace(".IS", "")
             zaman_str = datetime.now(TZ_TR).strftime("%H:%M")
 
-            # Destek ve Direnç Seviyelerini Hesapla
             ilk_destek, ilk_direnc = hesapla_fibonacci_destek_direnc(df)
 
             baslik = f"BIST {label} Sinyal"
@@ -784,10 +844,11 @@ def run_scanner():
 
             send_ntfy(mesaj, baslik)
 
-            hafiza[clean_ticker] = simdi_epoch
-            hafiza_kaydet(mem_file, hafiza)
+            kural_hafizasi[clean_ticker] = simdi_epoch
+            hafiza_kaydet(tum_hafiza)
 
       except Exception as e:
+        print(f"Hata oluştu ({clean_ticker}): {e}")
         continue
 
   print("Tüm Periyotların Tarama Turu Tamamlandı.")
