@@ -565,6 +565,30 @@ def check_supertrend(df, period=10, multiplier=3):
   return uptrend
 
 
+def hesapla_fibonacci_destek_direnc(df, window=100):
+  """Son barlara göre Fibonacci bazlı ilk destek ve ilk direnç hesaplar."""
+  try:
+    recent_df = df.tail(window)
+    max_high = recent_df["High"].max()
+    min_low = recent_df["Low"].min()
+    diff = max_high - min_low
+    curr_price = df["Close"].iloc[-1]
+
+    fib_ratios = [0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0]
+    levels = [min_low + (diff * r) for r in fib_ratios]
+    levels.sort()
+
+    destekler = [lvl for lvl in levels if lvl < curr_price]
+    direncler = [lvl for lvl in levels if lvl > curr_price]
+
+    ilk_destek = destekler[-1] if destekler else min_low
+    ilk_direnc = direncler[0] if direncler else max_high
+    return float(ilk_destek), float(ilk_direnc)
+  except Exception:
+    curr_price = df["Close"].iloc[-1]
+    return float(curr_price * 0.95), float(curr_price * 1.05)
+
+
 def hafiza_yukle(dosya_adi):
   if os.path.exists(dosya_adi):
     try:
@@ -612,7 +636,7 @@ def run_scanner():
   simdi_epoch = time.time()
   print(
       f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] 1h (Dalga Marj +"
-      " MFI+DI) ve 4h (Orijinal) Tarama Başlatıldı..."
+      " MFI+DI) ve 4h (Orijinal) Destek/Dirençli Tarama Başlatıldı..."
   )
 
   for tf in TIMEFRAMES:
@@ -747,11 +771,15 @@ def run_scanner():
             temiz_isim = clean_ticker.replace(".IS", "")
             zaman_str = datetime.now(TZ_TR).strftime("%H:%M")
 
+            # Destek ve Direnç Seviyelerini Hesapla
+            ilk_destek, ilk_direnc = hesapla_fibonacci_destek_direnc(df)
+
             baslik = f"BIST {label} Sinyal"
             mesaj = (
                 f"🚀 *BIST {label} Sinyal* ({zaman_str})\n• Hisse:"
-                f" *{temiz_isim}* | Fiyat: {close_curr:.2f} | MFI:"
-                f" {mfi_curr:.1f} | +DI: {plus_di_curr:.1f}"
+                f" *{temiz_isim}* | Fiyat: {close_curr:.2f}\n• MFI: {mfi_curr:.1f}"
+                f" | +DI: {plus_di_curr:.1f}\n• 🟢 İlk Destek:"
+                f" {ilk_destek:.2f}\n• 🔴 İlk Direnç: {ilk_direnc:.2f}"
             )
 
             send_ntfy(mesaj, baslik)
