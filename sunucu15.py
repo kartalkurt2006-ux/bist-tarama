@@ -13,7 +13,7 @@ import yfinance as yf
 app = Flask(__name__)
 
 # --- AYARLAR VE SABİTLER ---
-MEMORY_FILE = "hafiza_wave_mfi.json"
+MEMORY_FILE = "hafiza_hibrit_multi.json"
 COOLDOWN_SECONDS = 1800  # Aynı hisse için 30 dakika bekleme süresi
 TZ_TR = pytz.timezone("Europe/Istanbul")
 NTFY_URL = "https://ntfy.sh/borsa_senet"
@@ -496,10 +496,10 @@ def hafiza_kaydet(hafiza):
     json.dump(hafiza, f)
 
 
-def send_ntfy(message):
+def send_ntfy(message, title_prefix):
   try:
     headers = {
-        "Title": "15m Hibrit Erken Patlama Sinyali",
+        "Title": f"{title_prefix} Hibrit Erken Patlama Sinyali",
         "Priority": "high",
     }
     requests.post(
@@ -553,7 +553,6 @@ def calculate_supertrend(df, period=10, multiplier=3):
 
 
 def hesapla_fibonacci(df, window=100):
-  # Son 'window' mum içindeki en yüksek ve en düşük seviyeyi bul
   recent_df = df.tail(window)
   max_high = recent_df["High"].max()
   min_low = recent_df["Low"].min()
@@ -561,13 +560,10 @@ def hesapla_fibonacci(df, window=100):
 
   curr_price = df["Close"].iloc[-1]
 
-  # Standart Fibonacci Seviyeleri
   fib_ratios = [0.0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0]
-  # Düşüş veya yükseliş yönüne göre seviye listesi
   levels = [min_low + (diff * r) for r in fib_ratios]
   levels.sort()
 
-  # Fiyatın hemen altındaki ilk destek ve hemen üstündeki ilk direnç
   destekler = [lvl for lvl in levels if lvl < curr_price]
   direncler = [lvl for lvl in levels if lvl > curr_price]
 
@@ -577,7 +573,7 @@ def hesapla_fibonacci(df, window=100):
   return ilk_destek, ilk_direnc
 
 
-def run_scanner():
+def tarama_calistir(interval_str):
   if not piyasa_zaman_kontrolu():
     return
   hafiza = hafiza_yukle()
@@ -587,7 +583,7 @@ def run_scanner():
     clean_ticker = ticker.strip()
     try:
       df = yf.download(
-          clean_ticker, period="60d", interval="15m", progress=False
+          clean_ticker, period="60d", interval=interval_str, progress=False
       )
       if df.empty or len(df) < 50:
         continue
@@ -601,23 +597,23 @@ def run_scanner():
           df["Volume"],
       )
 
-      # 1. Supertrend Hesaplama ve Yüzdesel Kırılım Kontrolü (* 1.002)
+      # 1. Supertrend Kırılımı (* 1.002)
       st = calculate_supertrend(df)
       st_breakout = close.iloc[-1] > (st.iloc[-1] * 1.002)
 
-      # 2. Hacim Kriterleri (Hacim Artışı + Göreceli Hacim RVOL > 0.6)
+      # 2. Hacim Kriterleri (Hacim Artışı + RVOL > 0.6)
       vol_ma20 = volume.rolling(window=20).mean()
       rvol = volume.iloc[-1] / (vol_ma20.iloc[-1] + 1e-10)
       volume_growth = volume.iloc[-1] > volume.iloc[-2]
       rvol_check = rvol > 0.6
 
-      # 3. Bollinger Üst Bant Kontrolü (Üst bant kırılımı veya üstünde seyretme)
+      # 3. Bollinger Üst Bant Kontrolü
       sma20 = close.rolling(window=20).mean()
       std20 = close.rolling(window=20).std()
       upper_band = sma20 + (std20 * 2)
       bollinger_check = close.iloc[-1] >= upper_band.iloc[-1]
 
-      # 4. MFI (14 Periyot) > 29
+      # 4. MFI (14) > 29
       typical_price = (high + low + close) / 3
       money_flow = typical_price * volume
       positive_flow = (
@@ -634,7 +630,7 @@ def run_scanner():
       mfi_curr = mfi.iloc[-1]
       mfi_check = mfi_curr > 29
 
-      # 5. +DI (14 Periyot) > 20 (Erken uyanış için esnetildi)
+      # 5. +DI (14) > 20
       up_move = high.diff()
       down_move = -low.diff()
       plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
@@ -650,7 +646,7 @@ def run_scanner():
       plus_di_curr = plus_di.iloc[-1]
       di_check = plus_di_curr > 20
 
-      # 6. RSI (14 Periyot) > 50
+      # 6. RSI (14) > 50
       delta = close.diff()
       gain = delta.where(delta > 0, 0).rolling(14).mean()
       loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
@@ -659,7 +655,7 @@ def run_scanner():
       rsi_curr = rsi.iloc[-1]
       rsi_check = rsi_curr > 50
 
-      # Tüm Şartların Birleşimi (Hibrit Erken Patlama + Bollinger Üst Bant)
+      # Tüm Şartların Birleşimi
       if (
           st_breakout
           and volume_growth
@@ -669,19 +665,20 @@ def run_scanner():
           and di_check
           and rsi_check
       ):
-        if simdi_epoch - hafiza.get(clean_ticker, 0) > COOLDOWN_SECONDS:
+        mem_key = f"{clean_ticker}_{interval_str}"
+        if simdi_epoch - hafiza.get(mem_key, 0) > COOLDOWN_SECONDS:
           temiz_isim = clean_ticker.replace(".IS", "")
           ilk_destek, ilk_direnc = hesapla_fibonacci(df)
 
           mesaj = (
-              f"🚀 *15m Hibrit Erken Patlama Sinyali*\n• Hisse:"
+              f"🚀 *{interval_str} Hibrit Erken Patlama Sinyali*\n• Hisse:"
               f" *{temiz_isim}* | Fiyat: {close.iloc[-1]:.2f}\n• 🟢 İlk Destek"
               f" (Fib): {ilk_destek:.2f}\n• 🔴 İlk Direnç (Fib):"
               f" {ilk_direnc:.2f}\n• MFI: {mfi_curr:.1f} | +DI:"
               f" {plus_di_curr:.1f} | RSI: {rsi_curr:.1f} | RVOL: {rvol:.2f}"
           )
-          send_ntfy(mesaj)
-          hafiza[clean_ticker] = simdi_epoch
+          send_ntfy(mesaj, interval_str)
+          hafiza[mem_key] = simdi_epoch
           hafiza_kaydet(hafiza)
     except Exception as e:
       continue
@@ -689,15 +686,21 @@ def run_scanner():
 
 @app.route("/")
 def home():
-  return "15m Hibrit Erken Patlama Tarama Sunucusu Aktif!"
+  return "Çoklu Periyot Hibrit Erken Patlama Tarama Sunucusu Aktif!"
 
 
-@app.route("/tara")
-def manual_scan():
-  Thread(target=run_scanner).start()
-  return "15m Hibrit Erken Patlama tarama arka planda tetiklendi!"
+@app.route("/tara_15m")
+def manual_scan_15m():
+  Thread(target=tarama_calistir, args=("15m",)).start()
+  return "15m Hibrit Erken Patlama taraması arka planda tetiklendi!"
+
+
+@app.route("/tara_1h")
+def manual_scan_1h():
+  Thread(target=tarama_calistir, args=("1h",)).start()
+  return "1h Hibrit Erken Patlama taraması arka planda tetiklendi!"
 
 
 if __name__ == "__main__":
-  port = int(os.environ.get("PORT", 5001))
+  port = int(os.environ.get("PORT", 5000))
   app.run(host="0.0.0.0", port=port)
