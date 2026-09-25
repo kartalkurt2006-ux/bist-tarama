@@ -18,7 +18,7 @@ NTFY_URL = "https://ntfy.sh/borsa_senet"
 # Tek Merkezi Hafıza Dosyası
 MERKEZI_HAFIZA_DOSYASI = "borsa_hafiza.json"
 
-# Taranacak Periyotlar ve Kuralları (Hibrit 1 saat eklendi)
+# Taranacak Periyotlar ve Kuralları
 TIMEFRAMES = [
     {
         "period": "15m",
@@ -454,7 +454,7 @@ def run_scanner():
           if sart_c_h_roc and sart_strend and sart_ott and sart_high_ref and sart_volume:
             sinyal_var = True
 
-        # --- HİBRİT 1 SAAT KURAL SETİ (Yeni Eklenen) ---
+        # --- HİBRİT 1 SAAT KURAL SETİ ---
         elif kural_tipi == "hibrit_1h":
           strend_val = calculate_strend(df, period=2, multiplier=1).iloc[-1]
           ott_val = calculate_ott(df, period=2, percent=3).iloc[-1]
@@ -465,18 +465,14 @@ def run_scanner():
           curr_volume = volume.iloc[-1]
           prev_volume = volume.iloc[-2]
 
-          # 1. Coşku / Tepe Kapanış (C=H ve ROC >= 1)
           c_equals_h = close_curr >= (high_curr * 0.999)
           roc_val = ((close_curr - prev_close) / prev_close) * 100
           sart_c_h_roc = c_equals_h and (roc_val >= 1.0)
 
-          # 2. Trend ve Hacim Filtreleri (STrend, OTT, Ref High, Volume)
           sart_strend = close_curr > (strend_val * 1.002)
           sart_ott = close_curr > (ott_val * 1.002)
           sart_high_ref = high_curr > (prev_high * 1.0015)
           sart_volume = curr_volume > prev_volume
-
-          # 3. Yapısal Dalga Marjı Kırılımı (4-8-5-8-9)
           wave_breakout = check_wave_margins(df)
 
           if sart_c_h_roc and sart_strend and sart_ott and sart_high_ref and sart_volume and wave_breakout:
@@ -492,10 +488,10 @@ def run_scanner():
             rvol_curr = volume.iloc[-1] / (volume.rolling(20).mean().iloc[-1] + 1e-10)
 
             baslik = f"BIST {label} Sinyal"
-                            mesaj = (
+            # Hisse ismi kutulu ve dikkat çekici renkli sembolle güncellendi:
+            mesaj = (
                 f"🚀 *BIST {label} Sinyal* ({zaman_str})\n• Hisse:"
                 f" `🟦 {temiz_isim} 🟦` | Fiyat: {close_curr:.2f}\n• MFI: {mfi_curr:.1f}"
-                f" *{temiz_isim}* | Fiyat: {close_curr:.2f}\n• MFI: {mfi_curr:.1f}"
                 f" | CMF: {cmf_curr:.2f} | RSI: {rsi_curr:.1f} | RVOL:"
                 f" {rvol_curr:.2f}\n• 🟢 İlk Destek:"
                 f" {ilk_destek:.2f}\n• 🔴 İlk Direnç: {ilk_direnc:.2f}"
