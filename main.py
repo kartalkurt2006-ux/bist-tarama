@@ -18,7 +18,7 @@ NTFY_URL = "https://ntfy.sh/borsa_senet"
 # Tek Merkezi Hafıza Dosyası
 MERKEZI_HAFIZA_DOSYASI = "borsa_hafiza.json"
 
-# Taranacak Periyotlar ve Kuralları
+# Taranacak Periyotlar ve Kuralları (Hibrit çıkarıldı, yerine acil 15 dk yetiş eklendi)
 TIMEFRAMES = [
     {
         "period": "15m",
@@ -27,8 +27,13 @@ TIMEFRAMES = [
     },
     {
         "period": "15m",
-        "label": "15m Profesyonel Momentum (Esnetilmiş 8 Şart)",
-        "kural_tipi": "15m_profesyonel",
+        "label": "15m Profesjonel Momentum (Esnetilmiş 8 Şart)",
+        "kural_tipi": "15m_profesjonel",
+    },
+    {
+        "period": "15m",
+        "label": "acil 15 dk yetiş",
+        "kural_tipi": "acil_15_dk",
     },
     {
         "period": "1h",
@@ -39,11 +44,6 @@ TIMEFRAMES = [
         "period": "1h",
         "label": "Süper 1 Saat",
         "kural_tipi": "1h_super",
-    },
-    {
-        "period": "1h",
-        "label": "Hibrit 1 saat",
-        "kural_tipi": "hibrit_1h",
     },
 ]
 
@@ -130,8 +130,7 @@ def calculate_ott(df, period=2, percent=3):
   return ema * (1 - percent / 100.0)
 
 
-def check_wave_margins(df, lookback=5):
-  """İçsel Dalga Değerleri (4, 8, 5, 8, 9) ve Belirtilen Lookback Bar İçinde Marj Kırılım Kontrolü."""
+def check_wave_margins(df, lookback=3):
   try:
     close = df["Close"].values
     high = df["High"].values
@@ -152,7 +151,6 @@ def check_wave_margins(df, lookback=5):
 
     upper_margin_threshold = recent_low + (margin_range * 0.80)
 
-    # Son lookback bar içerisinde aşağıdan yukarı kesişim kontrolü
     for i in range(-lookback, 0):
       prev_p = close[i - 1]
       curr_p = close[i]
@@ -195,7 +193,6 @@ def check_supertrend(df, period=10, multiplier=3):
 
 
 def hesapla_fibonacci_destek_direnc(df, window=100):
-  """Son barlara göre Fibonacci bazlı ilk destek ve ilk direnç hesaplar."""
   try:
     recent_df = df.tail(window)
     max_high = recent_df["High"].max()
@@ -238,7 +235,7 @@ def piyasa_zaman_kontrolu():
     return True
 
   simdi = datetime.now(TZ_TR)
-  if simdi.weekday() >= 5:  # Hafta sonu
+  if simdi.weekday() >= 5:
     return False
 
   baslangic = simdi.replace(hour=9, minute=30, second=0, microsecond=0)
@@ -362,7 +359,7 @@ def run_scanner():
 
         sinyal_var = False
 
-        # --- BOMBA 15 KURAL SETİ ---
+        # --- BOMBA 15 KURAL SETİ (Orijinal) ---
         if kural_tipi == "15m_klasik":
           bar_sayisi = 6
           recent_df = df.iloc[-(bar_sayisi + 1) : -1]
@@ -374,7 +371,6 @@ def run_scanner():
           birinci_dalga_marji = pivot * 1.0023
 
           sma20 = close.rolling(20).mean()
-          std20 = close.rolling(20).std()
           bb_middle = sma20.iloc[-1]
 
           rvol = volume / volume.rolling(20).mean()
@@ -396,32 +392,21 @@ def run_scanner():
             sinyal_var = True
 
         # --- 15M PROFESYONEL MOMENTUM KURAL SETİ (Esnetilmiş) ---
-        elif kural_tipi == "15m_profesyonel":
-          # 1. 4-8-5-8-9 Dalga Marjı Kırılımı (Son 5 bar içinde)
+        elif kural_tipi == "15m_profesjonel":
           sart_wave = check_wave_margins(df, lookback=5)
-          
-          # 2. Hacim Artışı (Son mum hacmi > Bir önceki mum hacmi)
           sart_vol_growth = volume.iloc[-1] > volume.iloc[-2]
           
-          # 3. Göreceli Hacim (RVOL > 1.0)
           rvol = volume / volume.rolling(20).mean()
           sart_rvol = rvol.iloc[-1] > 1.0
           
-          # 4. Hull 20 Kuralı (Kapanış > HMA20)
           hma20 = calculate_hma(close, 20)
           sart_hma = close_curr > hma20.iloc[-1]
           
-          # 5. Bollinger Orta Bant (Kapanış >= Bollinger Orta Bant / SMA20)
           sma20 = close.rolling(20).mean()
           sart_bb = close_curr >= sma20.iloc[-1]
           
-          # 6. MFI > 25
           sart_mfi = mfi_curr > 25
-          
-          # 7. +DI > 15
           sart_pid = plus_di_curr > 15
-          
-          # 8. RSI > 45
           sart_rsi = rsi_curr > 45
 
           if (
@@ -436,11 +421,27 @@ def run_scanner():
           ):
             sinyal_var = True
 
+        # --- ACİL 15 DK YETİŞ (Sprint / Ani Patlama Taraması) ---
+        elif kural_tipi == "acil_15_dk":
+          prev_close = close.iloc[-2]
+          roc_15m = ((close_curr - prev_close) / prev_close) * 100
+          
+          high_curr = high.iloc[-1]
+          tepede_kapatma = close_curr >= (high_curr * 0.995)
+          
+          hacim_patlamasi = volume.iloc[-1] > (volume.rolling(20).mean().iloc[-1] * 1.5)
+          
+          sart_rsi = rsi_curr > 50
+          sart_mfi = mfi_curr > 40
+
+          if roc_15m >= 1.0 and tepede_kapatma and hacim_patlamasi and sart_rsi and sart_mfi:
+            sinyal_var = True
+
         # --- 1H DALGA MARJLI KURAL SETİ ---
         elif kural_tipi == "1h_dalga_gorsel":
           hma20 = calculate_hma(close, 20)
           hma20_curr = hma20.iloc[-1]
-          wave_breakout = check_wave_margins(df)
+          wave_breakout = check_wave_margins(df, lookback=3)
 
           if (
               (close_curr > hma20_curr)
@@ -467,34 +468,10 @@ def run_scanner():
 
           sart_strend = close_curr > (strend_val * 1.002)
           sart_ott = close_curr > (ott_val * 1.002)
-          sart_high_ref = high_curr > (prev_high * 1.0015)
+          sart_high_ref = high_curr > (prev_high * 0.0015)
           sart_volume = curr_volume > prev_volume
 
           if sart_c_h_roc and sart_strend and sart_ott and sart_high_ref and sart_volume:
-            sinyal_var = True
-
-        # --- HİBRİT 1 SAAT KURAL SETİ ---
-        elif kural_tipi == "hibrit_1h":
-          strend_val = calculate_strend(df, period=2, multiplier=1).iloc[-1]
-          ott_val = calculate_ott(df, period=2, percent=3).iloc[-1]
-          
-          high_curr = high.iloc[-1]
-          prev_high = high.iloc[-2]
-          prev_close = close.iloc[-2]
-          curr_volume = volume.iloc[-1]
-          prev_volume = volume.iloc[-2]
-
-          c_equals_h = close_curr >= (high_curr * 0.999)
-          roc_val = ((close_curr - prev_close) / prev_close) * 100
-          sart_c_h_roc = c_equals_h and (roc_val >= 1.0)
-
-          sart_strend = close_curr > (strend_val * 1.002)
-          sart_ott = close_curr > (ott_val * 1.002)
-          sart_high_ref = high_curr > (prev_high * 1.0015)
-          sart_volume = curr_volume > prev_volume
-          wave_breakout = check_wave_margins(df)
-
-          if sart_c_h_roc and sart_strend and sart_ott and sart_high_ref and sart_volume and wave_breakout:
             sinyal_var = True
 
         if sinyal_var:
