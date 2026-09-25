@@ -395,7 +395,7 @@ def run_scanner():
           ):
             sinyal_var = True
 
-        # --- 15M PROFESYONEL MOMENTUM KURAL SETİ (Supertrend Çıkarıldı - 8 Şart) ---
+        # --- 15M PROFESYONEL MOMENTUM KURAL SETİ (Bollinger Orta Bant Güncellemeli) ---
         elif kural_tipi == "15m_profesyonel":
           # 1. 4-8-5-8-9 Dalga Marjı Kırılımı (Son 3 bar içinde)
           sart_wave = check_wave_margins(df)
@@ -411,11 +411,9 @@ def run_scanner():
           hma20 = calculate_hma(close, 20)
           sart_hma = close_curr > hma20.iloc[-1]
           
-          # 5. Bollinger Üst Bant (Kapanış >= Bollinger Üst Bant)
+          # 5. Bollinger Orta Bant (Kapanış >= Bollinger Orta Bant / SMA20)
           sma20 = close.rolling(20).mean()
-          std20 = close.rolling(20).std()
-          bb_upper = sma20.iloc[-1] + (2 * std20.iloc[-1])
-          sart_bb = close_curr >= bb_upper
+          sart_bb = close_curr >= sma20.iloc[-1]
           
           # 6. MFI > 29
           sart_mfi = mfi_curr > 29
