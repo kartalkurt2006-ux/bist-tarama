@@ -27,7 +27,7 @@ TIMEFRAMES = [
     },
     {
         "period": "15m",
-        "label": "15m Profesyonel Momentum (8 Şart)",
+        "label": "15m Profesyonel Momentum (Esnetilmiş 8 Şart)",
         "kural_tipi": "15m_profesyonel",
     },
     {
@@ -130,8 +130,8 @@ def calculate_ott(df, period=2, percent=3):
   return ema * (1 - percent / 100.0)
 
 
-def check_wave_margins(df):
-  """İçsel Dalga Değerleri (4, 8, 5, 8, 9) ve Son 3 Bar İçinde Marj Kırılım Kontrolü."""
+def check_wave_margins(df, lookback=5):
+  """İçsel Dalga Değerleri (4, 8, 5, 8, 9) ve Belirtilen Lookback Bar İçinde Marj Kırılım Kontrolü."""
   try:
     close = df["Close"].values
     high = df["High"].values
@@ -152,8 +152,8 @@ def check_wave_margins(df):
 
     upper_margin_threshold = recent_low + (margin_range * 0.80)
 
-    # Son 3 bar içerisinde herhangi bir anda aşağıdan yukarı kesişim (kırılım) olmuş mu?
-    for i in range(-3, 0):
+    # Son lookback bar içerisinde aşağıdan yukarı kesişim kontrolü
+    for i in range(-lookback, 0):
       prev_p = close[i - 1]
       curr_p = close[i]
       if prev_p <= upper_margin_threshold and curr_p > upper_margin_threshold:
@@ -395,17 +395,17 @@ def run_scanner():
           ):
             sinyal_var = True
 
-        # --- 15M PROFESYONEL MOMENTUM KURAL SETİ (Bollinger Orta Bant Güncellemeli) ---
+        # --- 15M PROFESYONEL MOMENTUM KURAL SETİ (Esnetilmiş) ---
         elif kural_tipi == "15m_profesyonel":
-          # 1. 4-8-5-8-9 Dalga Marjı Kırılımı (Son 3 bar içinde)
-          sart_wave = check_wave_margins(df)
+          # 1. 4-8-5-8-9 Dalga Marjı Kırılımı (Son 5 bar içinde)
+          sart_wave = check_wave_margins(df, lookback=5)
           
           # 2. Hacim Artışı (Son mum hacmi > Bir önceki mum hacmi)
           sart_vol_growth = volume.iloc[-1] > volume.iloc[-2]
           
-          # 3. Göreceli Hacim (RVOL > 1.2)
+          # 3. Göreceli Hacim (RVOL > 1.0)
           rvol = volume / volume.rolling(20).mean()
-          sart_rvol = rvol.iloc[-1] > 1.2
+          sart_rvol = rvol.iloc[-1] > 1.0
           
           # 4. Hull 20 Kuralı (Kapanış > HMA20)
           hma20 = calculate_hma(close, 20)
@@ -415,16 +415,15 @@ def run_scanner():
           sma20 = close.rolling(20).mean()
           sart_bb = close_curr >= sma20.iloc[-1]
           
-          # 6. MFI > 29
-          sart_mfi = mfi_curr > 29
+          # 6. MFI > 25
+          sart_mfi = mfi_curr > 25
           
-          # 7. +DI > 20
-          sart_pid = plus_di_curr > 20
+          # 7. +DI > 15
+          sart_pid = plus_di_curr > 15
           
-          # 8. RSI > 50
-          sart_rsi = rsi_curr > 50
+          # 8. RSI > 45
+          sart_rsi = rsi_curr > 45
 
-          # Tüm 8 şartın aynı anda sağlanması gereklidir:
           if (
               sart_wave
               and sart_vol_growth
