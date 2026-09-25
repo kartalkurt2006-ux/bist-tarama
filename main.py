@@ -36,14 +36,14 @@ TIMEFRAMES = [
         "kural_tipi": "acil_15_dk",
     },
     {
-        "period": "1h",
-        "label": "1 Saatlik (Dalga Marj + RSI > 50 + +DI > 25 + HMA20)",
-        "kural_tipi": "1h_dalga_gorsel",
+        "period": "15m",
+        "label": "Süper Fisher 15",
+        "kural_tipi": "super_fisher_15",
     },
     {
         "period": "1h",
-        "label": "Süper 1 Saat",
-        "kural_tipi": "1h_super",
+        "label": "1 Saatlik (Dalga Marj + RSI > 50 + +DI > 25 + HMA20)",
+        "kural_tipi": "1h_dalga_gorsel",
     },
 ]
 
@@ -114,7 +114,7 @@ def calculate_hma(series, period=20):
   return hma
 
 
-def calculate_strend(df, period=2, multiplier=1):
+def calculate_strend(df, period=10, multiplier=3):
   hl2 = (df["High"] + df["Low"]) / 2
   tr = pd.concat([
       df["High"] - df["Low"],
@@ -122,12 +122,33 @@ def calculate_strend(df, period=2, multiplier=1):
       (df["Low"] - df["Close"].shift()).abs()
   ], axis=1).max(axis=1)
   atr = tr.rolling(period).mean()
-  return hl2 + (multiplier * atr)
+  
+  # Temel SuperTrend Hesaplama Mantığı
+  upperband = hl2 + (multiplier * atr)
+  lowerband = hl2 - (multiplier * atr)
+  
+  # Basitleştirilmiş seri dönüşü (Karşılaştırma için temel seviye)
+  return lowerband
 
 
-def calculate_ott(df, period=2, percent=3):
-  ema = df["Close"].ewm(span=period, adjust=False).mean()
-  return ema * (1 - percent / 100.0)
+def calculate_fisher(df, length=9):
+  # Fisher Transform Hesaplama
+  high = df["High"]
+  low = df["Low"]
+  
+  # Fiyatı -1 ile +1 arasına normalize etme
+  min_low = low.rolling(length).min()
+  max_high = high.rolling(length).max()
+  
+  value = 0.66 * ((df["Close"] - min_low) / (max_high - min_low + 1e-10) - 0.5) + 0.67 * value.shift(1) if 'value' in locals() else 0.66 * ((df["Close"] - min_low) / (max_high - min_low + 1e-10) - 0.5)
+  
+  # Sınırlandırma
+  value = value.clip(-0.999, 0.999)
+  
+  fish = 0.5 * np.log((1 + value) / (1 - value + 1e-10)) + 0.5 * fish.shift(1) if 'fish' in locals() else 0.5 * np.log((1 + value) / (1 - value + 1e-10))
+  trigger = fish.shift(1)
+  
+  return fish, trigger
 
 
 def check_wave_margins(df, lookback=3):
@@ -391,7 +412,7 @@ def run_scanner():
           ):
             sinyal_var = True
 
-        # --- ACİL 15 DK YETİŞ (Hacim Patlaması + Hull20 + MFI > 60 + RSI > 45) ---
+        # --- ACİL 15 DK YETİŞ ---
         elif kural_tipi == "acil_15_dk":
           rvol_curr = volume.iloc[-1] / (volume.rolling(20).mean().iloc[-1] + 1e-10)
           hacim_patlamasi = rvol_curr >= 3.0
@@ -399,11 +420,51 @@ def run_scanner():
           hma20 = calculate_hma(close, 20)
           hma20_curr = hma20.iloc[-1]
           
-          sart_hma = close_curr > hma20_curr  # Fiyat Hull 20'nin üstünde
+          sart_hma = close_curr > hma20_curr
           sart_mfi = mfi_curr > 60
           sart_rsi = rsi_curr > 45
 
           if hacim_patlamasi and sart_hma and sart_mfi and sart_rsi:
+            sinyal_var = True
+
+        # --- SÜPER FISHER 15 (YENİ KATMANLI STRATEJİ) ---
+        elif kural_tipi == "super_fisher_15":
+          # 1. RVOL >= 1.2
+          rvol_curr = volume.iloc[-1] / (volume.rolling(20).mean().iloc[-1] + 1e-10)
+          sart_rvol = rvol_curr >= 1.2
+
+          # 2. Esnetilmiş SuperTrend (Fiyat SuperTrend üstünde)
+          strend_line = calculate_strend(df, period=10, multiplier=3)
+          sart_strend = close_curr > strend_line.iloc[-1]
+
+          # 3. HMA 20 fiyatın altında (Fiyat HMA 20'nin üstünde)
+          hma20 = calculate_hma(close, 20)
+          sart_hma = close_curr > hma20.iloc[-1]
+
+          # 4. Fisher (Length: 9) Mavi > Turuncu veya Kesişim
+          # Basitleştirilmiş vektör tabanlı hesaplama
+          hl2 = (high + low) / 2
+          min_l = low.rolling(9).min()
+          max_h = high.rolling(9).max()
+          val = 0.66 * ((close - min_l) / (max_h - min_l + 1e-10) - 0.5)
+          fish = 0.5 * np.log((1 + val) / (1 - val + 1e-10))
+          trg = fish.shift(1)
+          
+          fish_curr = fish.iloc[-1]
+          trg_curr = trg.iloc[-1]
+          fish_prev = fish.iloc[-2]
+          trg_prev = trg.iloc[-2]
+
+          # Mavi turuncuyu yukarı kesti VEYA zaten turuncunun üstünde
+          sart_fisher = (fish_curr > trg_curr) or ((fish_prev <= trg_prev) and (fish_curr > trg_curr))
+
+          # 5. MFI > 45
+          sart_mfi = mfi_curr > 45
+
+          # 6. DI+ > DI-
+          sart_di = plus_di_curr > minus_di_curr
+
+          if sart_rvol and sart_strend and sart_hma and sart_fisher and sart_mfi and sart_di:
             sinyal_var = True
 
         # --- 1H DALGA MARJLI KURAL SETİ ---
@@ -420,29 +481,6 @@ def run_scanner():
           ):
             sinyal_var = True
 
-        # --- SÜPER 1 SAAT KURAL SETİ ---
-        elif kural_tipi == "1h_super":
-          strend_val = calculate_strend(df, period=2, multiplier=1).iloc[-1]
-          ott_val = calculate_ott(df, period=2, percent=3).iloc[-1]
-          
-          high_curr = high.iloc[-1]
-          prev_high = high.iloc[-2]
-          prev_close = close.iloc[-2]
-          curr_volume = volume.iloc[-1]
-          prev_volume = volume.iloc[-2]
-
-          c_equals_h = close_curr >= (high_curr * 0.999)
-          roc_val = ((close_curr - prev_close) / prev_close) * 100
-          sart_c_h_roc = c_equals_h and (roc_val >= 1.0)
-
-          sart_strend = close_curr > (strend_val * 1.002)
-          sart_ott = close_curr > (ott_val * 1.002)
-          sart_high_ref = high_curr > (prev_high * 0.0015)
-          sart_volume = curr_volume > prev_volume
-
-          if sart_c_h_roc and sart_strend and sart_ott and sart_high_ref and sart_volume:
-            sinyal_var = True
-
         if sinyal_var:
           son_gonderim = kural_hafizasi.get(clean_ticker, 0)
           if simdi_epoch - son_gonderim > COOLDOWN_SECONDS:
@@ -456,7 +494,7 @@ def run_scanner():
             mesaj = (
                 f"🚀 *BIST {label} Sinyal* ({zaman_str})\n• Hisse:"
                 f" `🟦 {temiz_isim} 🟦` | Fiyat: {close_curr:.2f}\n• MFI: {mfi_curr:.1f}"
-                f" | CMF: {cmf_curr:.2f} | RSI: {rsi_curr:.1f} | RVOL:"
+                f" | RSI: {rsi_curr:.1f} | RVOL:"
                 f" {rvol_curr:.2f}\n• 🟢 İlk Destek:"
                 f" {ilk_destek:.2f}\n• 🔴 İlk Direnç: {ilk_direnc:.2f}"
             )
