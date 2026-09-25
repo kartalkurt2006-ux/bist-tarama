@@ -27,8 +27,8 @@ TIMEFRAMES = [
     },
     {
         "period": "15m",
-        "label": "15m Dalga Marjı (4-8-5-8-9 + Tüm Klasik Şartlar)",
-        "kural_tipi": "15m_dalga",
+        "label": "15m Profesyonel Momentum (9 Şart)",
+        "kural_tipi": "15m_profesyonel",
     },
     {
         "period": "1h",
@@ -395,24 +395,61 @@ def run_scanner():
           ):
             sinyal_var = True
 
-        # --- 15M DALGA MARJLI KURAL SETİ (Orta Bant & Son 3 Bar Esnetmeli) ---
-        elif kural_tipi == "15m_dalga":
-          sma20 = close.rolling(20).mean()
-          sma20_curr = sma20.iloc[-1]  # Bollinger Orta Bandı
+        # --- 15M PROFESYONEL MOMENTUM KURAL SETİ (9 Şart) ---
+        elif kural_tipi == "15m_profesyonel":
+          # 1. Şart: Supertrend Kırılımı (Fiyat > Supertrend * 1.002)
+          st_line = calculate_strend(df, period=10, multiplier=3) # Veya standart parametre
+          # Daha önce tanımlanan check_supertrend yerine direkt fiyat & supertrend çizgisi kıyaslaması:
+          st_val = calculate_strend(df, period=10, multiplier=3).iloc[-1] # Veya özel Supertrend fonksiyonu
+          # Burada projemizdeki yapıya uygun Supertrend kontrolü:
+          st_breakout = close_curr > (calculate_strend(df, 10, 3).iloc[-1] * 1.002) # Alternatif olarak check_supertrend de kullanılabilir
+          
+          # Profesyonel 9 şartın tam mantıksal kontrolü:
+          # 1. Supertrend Kırılımı
+          sart_st = close_curr > (calculate_strend(df, 10, 3).iloc[-1] * 1.002) # Güvenli Supertrend üst katı
+          # Alternatif net Supertrend yönü ve fiyat ilişkisi için check_supertrend fonksiyonu da devrede olabilir:
+          sart_st_trend = check_supertrend(df, period=10, multiplier=3)
+          
+          # 2. 4-8-5-8-9 Dalga Marjı Kırılımı (Son 3 bar içinde)
+          sart_wave = check_wave_margins(df)
+          
+          # 3. Hacim Artışı (Son mum hacmi > Bir önceki mum hacmi)
+          sart_vol_growth = volume.iloc[-1] > volume.iloc[-2]
+          
+          # 4. Göreceli Hacim (RVOL > 1.2)
           rvol = volume / volume.rolling(20).mean()
-          supertrend_green = check_supertrend(df)
-          wave_breakout = check_wave_margins(df)
+          sart_rvol = rvol.iloc[-1] > 1.2
+          
+          # 5. Hull 20 Kuralı (Kapanış > HMA20)
+          hma20 = calculate_hma(close, 20)
+          sart_hma = close_curr > hma20.iloc[-1]
+          
+          # 6. Bollinger Üst Bant (Kapanış >= Bollinger Üst Bant)
+          sma20 = close.rolling(20).mean()
+          std20 = close.rolling(20).std()
+          bb_upper = sma20.iloc[-1] + (2 * std20.iloc[-1])
+          sart_bb = close_curr >= bb_upper
+          
+          # 7. MFI > 29
+          sart_mfi = mfi_curr > 29
+          
+          # 8. +DI > 20
+          sart_pid = plus_di_curr > 20
+          
+          # 9. RSI > 50
+          sart_rsi = rsi_curr > 50
 
-          rvol_curr = rvol.iloc[-1]
-
+          # Tüm 9 şartın aynı anda sağlanması gereklidir:
           if (
-              (close_curr > sma20_curr)
-              and (mfi_curr > 29)
-              and (plus_di_curr > 20)
-              and (rsi_curr > 50)
-              and (rvol_curr > 0.6)
-              and supertrend_green
-              and wave_breakout
+              sart_st_trend
+              and sart_wave
+              and sart_vol_growth
+              and sart_rvol
+              and sart_hma
+              and sart_bb
+              and sart_mfi
+              and sart_pid
+              and sart_rsi
           ):
             sinyal_var = True
 
@@ -487,7 +524,6 @@ def run_scanner():
             rvol_curr = volume.iloc[-1] / (volume.rolling(20).mean().iloc[-1] + 1e-10)
 
             baslik = f"BIST {label} Sinyal"
-            # Hisse ismi kutulu ve dikkat çekici renkli sembolle güncellendi:
             mesaj = (
                 f"🚀 *BIST {label} Sinyal* ({zaman_str})\n• Hisse:"
                 f" `🟦 {temiz_isim} 🟦` | Fiyat: {close_curr:.2f}\n• MFI: {mfi_curr:.1f}"
