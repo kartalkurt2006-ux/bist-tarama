@@ -234,12 +234,11 @@ def run_scanner():
   simdi_epoch = time.time()
   print(
       f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] Hisse Bazlı"
-      " Tek İstekli Merkezi Tarama Başlatılıyor..."
+      " Tek İstekli 6 Stratejili Merkezi Tarama Başlatılıyor..."
   )
 
   tum_hafiza = hafiza_yukle()
 
-  # Her hisse için sırasıyla 15m ve 1h verilerini tek seferde çekip tüm stratejileri koşturacağız
   for ticker in STOCKS:
     clean_ticker = ticker.strip()
     temiz_isim = clean_ticker.replace(".IS", "")
@@ -247,7 +246,7 @@ def run_scanner():
     try:
       # 1. ADIM: 15 dakikalık veriyi TEK SEFERDE çek
       df_15m = yf.download(clean_ticker, period="1mo", interval="15m", progress=False)
-      time.sleep(0.15) # Rate limit koruması için minik bekleme
+      time.sleep(0.15)
 
       # 2. ADIM: 1 saatlik veriyi TEK SEFERDE çek
       df_1h = yf.download(clean_ticker, period="1mo", interval="1h", progress=False)
@@ -264,7 +263,6 @@ def run_scanner():
         volume_15 = df_15m["Volume"]
         close_curr_15 = close_15.iloc[-1]
 
-        # Ortak 15m İndikatörleri
         delta_15 = close_15.diff()
         gain_15 = (delta_15.where(delta_15 > 0, 0)).rolling(14).mean()
         loss_15 = (-delta_15.where(delta_15 < 0, 0)).rolling(14).mean()
@@ -296,6 +294,7 @@ def run_scanner():
 
         rvol_15 = volume_15 / volume_15.rolling(20).mean()
         rvol_curr_15 = rvol_15.iloc[-1]
+        hma20_15 = calculate_hma(close_15, 20)
 
         # 1. Strateji: Bomba 15
         kural_tipi = "15m_klasik"
@@ -310,7 +309,7 @@ def run_scanner():
         kapanis_teyit = (close_15.iloc[-2] <= birinci_dalga_marji) and (close_curr_15 > birinci_dalga_marji)
 
         if kapanis_teyit and (close_curr_15 > bb_middle) and (mfi_curr_15 > 60) and (cmf_curr_15 > -0.20) and (rsi_curr_15 > 50) and (rvol_curr_15 > 0.6):
-          if simdi_epoch - tum_hafiza[kural_tipi].get(clean_identifier := clean_ticker, 0) > COOLDOWN_SECONDS:
+          if simdi_epoch - tum_hafiza[kural_tipi].get(clean_ticker, 0) > COOLDOWN_SECONDS:
             ilk_destek, ilk_direnc = hesapla_fibonacci_destek_direnc(df_15m)
             mesaj = f"🚀 *BIST {label} Sinyal* ({datetime.now(TZ_TR).strftime('%H:%M')})\n• Hisse: `🟦 {temiz_isim} 🟦` | Fiyat: {close_curr_15:.2f}\n• MFI: {mfi_curr_15:.1f} | RSI: {rsi_curr_15:.1f} | RVOL: {rvol_curr_15:.2f}\n• 🟢 İlk Destek: {ilk_destek:.2f}\n• 🔴 İlk Direnç: {ilk_direnc:.2f}"
             send_ntfy(mesaj, f"BIST {label} Sinyal")
@@ -322,7 +321,6 @@ def run_scanner():
         label = "15m Profesjonel Momentum"
         if kural_tipi not in tum_hafiza: tum_hafiza[kural_tipi] = {}
         
-        hma20_15 = calculate_hma(close_15, 20)
         sart_wave = check_wave_margins(df_15m, lookback=5)
         if sart_wave and (volume_15.iloc[-1] > volume_15.iloc[-2]) and (rvol_curr_15 > 1.0) and (close_curr_15 > hma20_15.iloc[-1]) and (close_curr_15 >= close_15.rolling(20).mean().iloc[-1]) and (mfi_curr_15 > 25) and (plus_di_curr_15 > 15) and (rsi_curr_15 > 45):
           if simdi_epoch - tum_hafiza[kural_tipi].get(clean_ticker, 0) > COOLDOWN_SECONDS:
@@ -364,7 +362,7 @@ def run_scanner():
             tum_hafiza[kural_tipi][clean_ticker] = simdi_epoch
             hafiza_kaydet(tum_hafiza)
 
-      # --- 1 SAATLİK STRATEJİ KONTROLÜ ---
+      # --- 1 SAATLİK STRATEJİLER KONTROLÜ ---
       if not df_1h.empty and len(df_1h) >= 40:
         if isinstance(df_1h.columns, pd.MultiIndex):
           df_1h.columns = df_1h.columns.get_level_values(0)
@@ -389,13 +387,13 @@ def run_scanner():
         plus_di_1h = 100 * (plus_dm_1h.rolling(14).sum() / (tr_1h.rolling(14).sum() + 1e-10))
         plus_di_curr_1h = plus_di_1h.iloc[-1]
 
+        hma20_1h = calculate_hma(close_1h, 20)
+        wave_breakout_1h = check_wave_margins(df_1h, lookback=3)
+
         # 5. Strateji: 1 Saatlik Dalga Marjı
         kural_tipi = "1h_dalga_gorsel"
         label = "1 Saatlik Dalga Marjı"
         if kural_tipi not in tum_hafiza: tum_hafiza[kural_tipi] = {}
-        
-        hma20_1h = calculate_hma(close_1h, 20)
-        wave_breakout_1h = check_wave_margins(df_1h, lookback=3)
 
         if (close_curr_1h > hma20_1h.iloc[-1]) and (rsi_curr_1h > 50) and (plus_di_curr_1h > 25) and wave_breakout_1h:
           if simdi_epoch - tum_hafiza[kural_tipi].get(clean_ticker, 0) > COOLDOWN_SECONDS:
@@ -405,11 +403,35 @@ def run_scanner():
             tum_hafiza[kural_tipi][clean_ticker] = simdi_epoch
             hafiza_kaydet(tum_hafiza)
 
+        # 6. Strateji: 1 saat süper (Onayladığınız güncel kural seti)
+        kural_tipi = "1_saat_super"
+        label = "1 saat süper"
+        if kural_tipi not in tum_hafiza: tum_hafiza[kural_tipi] = {}
+
+        tp_1h = (high_1h + low_1h + close_1h) / 3
+        mf_1h = tp_1h * volume_1h
+        pos_flow_1h = mf_1h.where(tp_1h > tp_1h.shift(1), 0).rolling(14).sum()
+        neg_flow_1h = mf_1h.where(tp_1h < tp_1h.shift(1), 0).rolling(14).sum()
+        mfi_1h = 100 - (100 / (1 + (pos_flow_1h / (neg_flow_1h + 1e-10))))
+        mfi_curr_1h = mfi_1h.iloc[-1]
+
+        mf_mult_1h = ((close_1h - low_1h) - (high_1h - close_1h)) / ((high_1h - low_1h) + 1e-10)
+        cmf_1h = (mf_mult_1h * volume_1h).rolling(20).sum() / (volume_1h.rolling(20).sum() + 1e-10)
+        cmf_curr_1h = cmf_1h.iloc[-1]
+
+        if (close_curr_1h > hma20_1h.iloc[-1]) and (mfi_curr_1h > 55) and (plus_di_curr_1h > 20) and (cmf_curr_1h > 0) and wave_breakout_1h:
+          if simdi_epoch - tum_hafiza[kural_tipi].get(clean_ticker, 0) > COOLDOWN_SECONDS:
+            ilk_destek, ilk_direnc = hesapla_fibonacci_destek_direnc(df_1h)
+            mesaj = f"🚀 *BIST {label} Sinyal* ({datetime.now(TZ_TR).strftime('%H:%M')})\n• Hisse: `🟦 {temiz_isim} 🟦` | Fiyat: {close_curr_1h:.2f}\n• MFI: {mfi_curr_1h:.1f} | CMF: {cmf_curr_1h:.2f} | +DI: {plus_di_curr_1h:.1f}\n• 🟢 İlk Destek: {ilk_destek:.2f}\n• 🔴 İlk Direnç: {ilk_direnc:.2f}"
+            send_ntfy(mesaj, f"BIST {label} Sinyal")
+            tum_hafiza[kural_tipi][clean_ticker] = simdi_epoch
+            hafiza_kaydet(tum_hafiza)
+
     except Exception as e:
       print(f"Hata oluştu ({clean_ticker}): {e}")
       continue
 
-  print("\nTüm Hisseler ve Stratejiler Başarıyla Tarandı.")
+  print("\nTüm Hisseler ve 6 Strateji Başarıyla Tarandı.")
 
 
 if __name__ == "__main__":
