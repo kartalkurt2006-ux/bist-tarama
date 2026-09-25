@@ -18,35 +18,6 @@ NTFY_URL = "https://ntfy.sh/borsa_senet"
 # Tek Merkezi Hafıza Dosyası
 MERKEZI_HAFIZA_DOSYASI = "borsa_hafiza.json"
 
-# Taranacak Periyotlar ve Kuralları
-TIMEFRAMES = [
-    {
-        "period": "15m",
-        "label": "bomba 15",
-        "kural_tipi": "15m_klasik",
-    },
-    {
-        "period": "15m",
-        "label": "15m Profesjonel Momentum (Esnetilmiş 8 Şart)",
-        "kural_tipi": "15m_profesjonel",
-    },
-    {
-        "period": "15m",
-        "label": "acil 15 dk yetiş (Esnetilmiş Sprint)",
-        "kural_tipi": "acil_15_dk",
-    },
-    {
-        "period": "15m",
-        "label": "Süper Fisher 15",
-        "kural_tipi": "super_fisher_15",
-    },
-    {
-        "period": "1h",
-        "label": "1 Saatlik (Dalga Marj + RSI > 50 + +DI > 25 + HMA20)",
-        "kural_tipi": "1h_dalga_gorsel",
-    },
-]
-
 # BIST Tüm Hisseler
 STOCKS = [
     "AAVST.IS", "ACSEL.IS", "ADEL.IS", "ADESE.IS", "ADGYO.IS", "AEFES.IS", "AFYON.IS", "AGESA.IS", "AGHOL.IS", "AGROT.IS",
@@ -127,7 +98,6 @@ def calculate_strend(df, period=10, multiplier=3):
 
 
 def calculate_fisher(df, length=9):
-  # Doğru Ehlers Fisher Transform (Özyinelemeli / Recursive Hesaplama)
   high = df["High"]
   low = df["Low"]
   close = df["Close"]
@@ -135,14 +105,9 @@ def calculate_fisher(df, length=9):
   min_low = low.rolling(length).min()
   max_high = high.rolling(length).max()
 
-  # Fiyatı -1 ile +1 arasına normalize et
   price_range = max_high - min_low
   price_range = price_range.replace(0, 1e-10)
   
-  value = pd.Series(0.0, index=close.index)
-  fish = pd.Series(0.0, index=close.index)
-  
-  # Serisel döngü ile doğru Ehlers smoothing (değer taşıyan yapı)
   price_vals = ((2.0 * (close - min_low) / price_range) - 1.0).values
   val_arr = np.zeros_like(price_vals)
   fish_arr = np.zeros_like(price_vals)
@@ -152,7 +117,6 @@ def calculate_fisher(df, length=9):
       val_arr[i] = 0.33 * price_vals[i]
       fish_arr[i] = 0.5 * np.log((1.0 + val_arr[i]) / (1.0 - val_arr[i] + 1e-10))
     else:
-      # Sınırla ve yumuşat
       clamped_p = np.clip(price_vals[i], -0.999, 0.999)
       val_arr[i] = 0.33 * clamped_p + 0.67 * val_arr[i-1]
       val_arr[i] = np.clip(val_arr[i], -0.999, 0.999)
@@ -162,7 +126,6 @@ def calculate_fisher(df, length=9):
 
   fish = pd.Series(fish_arr, index=close.index)
   trigger = fish.shift(1).fillna(0)
-  
   return fish, trigger
 
 
@@ -270,25 +233,31 @@ def run_scanner():
 
   simdi_epoch = time.time()
   print(
-      f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] Tüm periyotlar"
-      " merkezi hafıza ile taratılıyor..."
+      f"[{datetime.now(TZ_TR).strftime('%Y-%m-%d %H:%M:%S')}] Optimizasyonlu"
+      " merkezi tarama başlatılıyor..."
   )
 
   tum_hafiza = hafiza_yukle()
 
-  for tf in TIMEFRAMES:
-    period = tf["period"]
-    label = tf["label"]
-    kural_tipi = tf["kural_tipi"]
+  # Strateji kural tipleri ve etiketleri
+  aktif_stratejiler = [
+      {"kural_tipi": "15m_klasik", "label": "bomba 15", "period": "15m"},
+      {"kural_tipi": "15m_profesjonel", "label": "15m Profesjonel Momentum (Esnetilmiş 8 Şart)", "period": "15m"},
+      {"kural_tipi": "acil_15_dk", "label": "acil 15 dk yetiş (Esnetilmiş Sprint)", "period": "15m"},
+      {"kural_tipi": "super_fisher_15", "label": "Süper Fisher 15", "period": "15m"},
+      {"kural_tipi": "1h_dalga_gorsel", "label": "1 Saatlik (Dalga Marj + RSI > 50 + +DI > 25 + HMA20)", "period": "1h"},
+  ]
+
+  for strat in aktif_stratejiler:
+    kural_tipi = strat["kural_tipi"]
+    label = strat["label"]
+    period = strat["period"]
 
     if kural_tipi not in tum_hafiza:
       tum_hafiza[kural_tipi] = {}
     kural_hafizasi = tum_hafiza[kural_tipi]
 
-    print(
-        f"--> {label} ({period}) taraması yapılıyor... Toplam Hisse:"
-        f" {len(STOCKS)}"
-    )
+    print(f"\n--> Taranıyor: {label} ({period}) | Toplam Hisse: {len(STOCKS)}")
 
     for ticker in STOCKS:
       clean_ticker = ticker.strip()
@@ -296,7 +265,7 @@ def run_scanner():
         df = yf.download(
             clean_ticker, period="1mo", interval=period, progress=False
         )
-        time.sleep(0.25)
+        time.sleep(0.2)
 
         if df.empty or len(df) < 40:
           continue
@@ -442,34 +411,25 @@ def run_scanner():
           if hacim_patlamasi and sart_hma and sart_mfi and sart_rsi:
             sinyal_var = True
 
-        # --- SÜPER FISHER 15 (YENİ KATMANLI STRATEJİ) ---
+        # --- SÜPER FISHER 15 ---
         elif kural_tipi == "super_fisher_15":
-          # 1. RVOL >= 0.6
           rvol_curr = volume.iloc[-1] / (volume.rolling(20).mean().iloc[-1] + 1e-10)
           sart_rvol = rvol_curr >= 0.6
 
-          # 2. Esnetilmiş SuperTrend (Fiyat SuperTrend üstünde)
           strend_line = calculate_strend(df, period=10, multiplier=3)
           sart_strend = close_curr > strend_line.iloc[-1]
 
-          # 3. HMA 20 fiyatın altında (Fiyat HMA 20'nin üstünde)
           hma20 = calculate_hma(close, 20)
           sart_hma = close_curr > hma20.iloc[-1]
 
-          # 4. Fisher (Length: 9) Mavi > Turuncu veya Kesişim
           fish, trg = calculate_fisher(df, length=9)
           fish_curr = fish.iloc[-1]
           trg_curr = trg.iloc[-1]
           fish_prev = fish.iloc[-2]
           trg_prev = trg.iloc[-2]
 
-          # Mavi turuncuyu yukarı kesti VEYA zaten turuncunun üstünde
           sart_fisher = (fish_curr > trg_curr) or ((fish_prev <= trg_prev) and (fish_curr > trg_curr))
-
-          # 5. MFI > 45
           sart_mfi = mfi_curr > 45
-
-          # 6. DI+ > DI-
           sart_di = plus_di_curr > minus_di_curr
 
           if sart_rvol and sart_strend and sart_hma and sart_fisher and sart_mfi and sart_di:
@@ -516,7 +476,7 @@ def run_scanner():
         print(f"Hata oluştu ({clean_ticker}): {e}")
         continue
 
-  print("Tüm Periyotların Tarama Turu Tamamlandı.")
+  print("\nTüm Stratejilerin Tarama Turu Başarıyla Tamamlandı.")
 
 
 if __name__ == "__main__":
