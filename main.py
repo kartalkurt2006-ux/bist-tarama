@@ -122,31 +122,46 @@ def calculate_strend(df, period=10, multiplier=3):
       (df["Low"] - df["Close"].shift()).abs()
   ], axis=1).max(axis=1)
   atr = tr.rolling(period).mean()
-  
-  # Temel SuperTrend Hesaplama Mantığı
-  upperband = hl2 + (multiplier * atr)
   lowerband = hl2 - (multiplier * atr)
-  
-  # Basitleştirilmiş seri dönüşü (Karşılaştırma için temel seviye)
   return lowerband
 
 
 def calculate_fisher(df, length=9):
-  # Fisher Transform Hesaplama
+  # Doğru Ehlers Fisher Transform (Özyinelemeli / Recursive Hesaplama)
   high = df["High"]
   low = df["Low"]
-  
-  # Fiyatı -1 ile +1 arasına normalize etme
+  close = df["Close"]
+
   min_low = low.rolling(length).min()
   max_high = high.rolling(length).max()
+
+  # Fiyatı -1 ile +1 arasına normalize et
+  price_range = max_high - min_low
+  price_range = price_range.replace(0, 1e-10)
   
-  value = 0.66 * ((df["Close"] - min_low) / (max_high - min_low + 1e-10) - 0.5) + 0.67 * value.shift(1) if 'value' in locals() else 0.66 * ((df["Close"] - min_low) / (max_high - min_low + 1e-10) - 0.5)
+  value = pd.Series(0.0, index=close.index)
+  fish = pd.Series(0.0, index=close.index)
   
-  # Sınırlandırma
-  value = value.clip(-0.999, 0.999)
+  # Serisel döngü ile doğru Ehlers smoothing (değer taşıyan yapı)
+  price_vals = ((2.0 * (close - min_low) / price_range) - 1.0).values
+  val_arr = np.zeros_like(price_vals)
+  fish_arr = np.zeros_like(price_vals)
   
-  fish = 0.5 * np.log((1 + value) / (1 - value + 1e-10)) + 0.5 * fish.shift(1) if 'fish' in locals() else 0.5 * np.log((1 + value) / (1 - value + 1e-10))
-  trigger = fish.shift(1)
+  for i in range(len(price_vals)):
+    if i == 0:
+      val_arr[i] = 0.33 * price_vals[i]
+      fish_arr[i] = 0.5 * np.log((1.0 + val_arr[i]) / (1.0 - val_arr[i] + 1e-10))
+    else:
+      # Sınırla ve yumuşat
+      clamped_p = np.clip(price_vals[i], -0.999, 0.999)
+      val_arr[i] = 0.33 * clamped_p + 0.67 * val_arr[i-1]
+      val_arr[i] = np.clip(val_arr[i], -0.999, 0.999)
+      
+      fish_val = 0.5 * np.log((1.0 + val_arr[i]) / (1.0 - val_arr[i] + 1e-10))
+      fish_arr[i] = 0.5 * fish_val + 0.5 * fish_arr[i-1]
+
+  fish = pd.Series(fish_arr, index=close.index)
+  trigger = fish.shift(1).fillna(0)
   
   return fish, trigger
 
@@ -442,14 +457,7 @@ def run_scanner():
           sart_hma = close_curr > hma20.iloc[-1]
 
           # 4. Fisher (Length: 9) Mavi > Turuncu veya Kesişim
-          # Basitleştirilmiş vektör tabanlı hesaplama
-          hl2 = (high + low) / 2
-          min_l = low.rolling(9).min()
-          max_h = high.rolling(9).max()
-          val = 0.66 * ((close - min_l) / (max_h - min_l + 1e-10) - 0.5)
-          fish = 0.5 * np.log((1 + val) / (1 - val + 1e-10))
-          trg = fish.shift(1)
-          
+          fish, trg = calculate_fisher(df, length=9)
           fish_curr = fish.iloc[-1]
           trg_curr = trg.iloc[-1]
           fish_prev = fish.iloc[-2]
