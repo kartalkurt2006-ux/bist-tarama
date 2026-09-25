@@ -131,7 +131,7 @@ def calculate_ott(df, period=2, percent=3):
 
 
 def check_wave_margins(df):
-  """İçsel Dalga Değerleri (4, 8, 5, 8, 9) ve Marj Kırılım Kontrolü."""
+  """İçsel Dalga Değerleri (4, 8, 5, 8, 9) ve Son 3 Bar İçinde Marj Kırılım Kontrolü."""
   try:
     close = df["Close"].values
     high = df["High"].values
@@ -150,15 +150,16 @@ def check_wave_margins(df):
     if margin_range == 0:
       return False
 
-    current_price = close[-1]
-    prev_price = close[-2]
-
     upper_margin_threshold = recent_low + (margin_range * 0.80)
 
-    is_wave_breakout = (prev_price <= upper_margin_threshold) and (
-        current_price > upper_margin_threshold
-    )
-    return is_wave_breakout
+    # Son 3 bar içerisinde herhangi bir anda aşağıdan yukarı kesişim (kırılım) olmuş mu?
+    for i in range(-3, 0):
+      prev_p = close[i - 1]
+      curr_p = close[i]
+      if prev_p <= upper_margin_threshold and curr_p > upper_margin_threshold:
+        return True
+
+    return False
   except Exception:
     return False
 
@@ -394,20 +395,18 @@ def run_scanner():
           ):
             sinyal_var = True
 
-        # --- 15M DALGA MARJLI KURAL SETİ ---
+        # --- 15M DALGA MARJLI KURAL SETİ (Orta Bant & Son 3 Bar Esnetmeli) ---
         elif kural_tipi == "15m_dalga":
           sma20 = close.rolling(20).mean()
-          std20 = close.rolling(20).std()
-          bb_lower = sma20 - (2 * std20)
+          sma20_curr = sma20.iloc[-1]  # Bollinger Orta Bandı
           rvol = volume / volume.rolling(20).mean()
           supertrend_green = check_supertrend(df)
           wave_breakout = check_wave_margins(df)
 
-          bb_lower_curr = bb_lower.iloc[-1]
           rvol_curr = rvol.iloc[-1]
 
           if (
-              (close_curr > bb_lower_curr)
+              (close_curr > sma20_curr)
               and (mfi_curr > 29)
               and (plus_di_curr > 20)
               and (rsi_curr > 50)
