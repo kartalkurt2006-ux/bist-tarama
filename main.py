@@ -430,7 +430,7 @@ def run_scanner():
         # --- ACİL 15 DK YETİŞ ---
         elif kural_tipi == "acil_15_dk":
           rvol_curr = volume.iloc[-1] / (volume.rolling(20).mean().iloc[-1] + 1e-10)
-          hacim_patlamasi = rvol_curr >= 3.0
+          hacim_patlamasi = rvol_curr >= 0.6
           
           hma20 = calculate_hma(close, 20)
           hma20_curr = hma20.iloc[-1]
@@ -444,9 +444,9 @@ def run_scanner():
 
         # --- SÜPER FISHER 15 (YENİ KATMANLI STRATEJİ) ---
         elif kural_tipi == "super_fisher_15":
-          # 1. RVOL >= 1.2
+          # 1. RVOL >= 0.6
           rvol_curr = volume.iloc[-1] / (volume.rolling(20).mean().iloc[-1] + 1e-10)
-          sart_rvol = rvol_curr >= 1.2
+          sart_rvol = rvol_curr >= 0.6
 
           # 2. Esnetilmiş SuperTrend (Fiyat SuperTrend üstünde)
           strend_line = calculate_strend(df, period=10, multiplier=3)
