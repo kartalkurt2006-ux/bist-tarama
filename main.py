@@ -403,7 +403,7 @@ def run_scanner():
             tum_hafiza[kural_tipi][clean_ticker] = simdi_epoch
             hafiza_kaydet(tum_hafiza)
 
-        # 6. Strateji: 1 saat süper (Onayladığınız güncel kural seti)
+        # 6. Strateji: 1 saat süper (Güncellenmiş Kurallar: MFI > 30, CMF > -0.20)
         kural_tipi = "1_saat_super"
         label = "1 saat süper"
         if kural_tipi not in tum_hafiza: tum_hafiza[kural_tipi] = {}
@@ -419,7 +419,7 @@ def run_scanner():
         cmf_1h = (mf_mult_1h * volume_1h).rolling(20).sum() / (volume_1h.rolling(20).sum() + 1e-10)
         cmf_curr_1h = cmf_1h.iloc[-1]
 
-        if (close_curr_1h > hma20_1h.iloc[-1]) and (mfi_curr_1h > 55) and (plus_di_curr_1h > 20) and (cmf_curr_1h > 0) and wave_breakout_1h:
+        if (close_curr_1h > hma20_1h.iloc[-1]) and (mfi_curr_1h > 30) and (plus_di_curr_1h > 20) and (cmf_curr_1h > -0.20) and wave_breakout_1h:
           if simdi_epoch - tum_hafiza[kural_tipi].get(clean_ticker, 0) > COOLDOWN_SECONDS:
             ilk_destek, ilk_direnc = hesapla_fibonacci_destek_direnc(df_1h)
             mesaj = f"🚀 *BIST {label} Sinyal* ({datetime.now(TZ_TR).strftime('%H:%M')})\n• Hisse: `🟦 {temiz_isim} 🟦` | Fiyat: {close_curr_1h:.2f}\n• MFI: {mfi_curr_1h:.1f} | CMF: {cmf_curr_1h:.2f} | +DI: {plus_di_curr_1h:.1f}\n• 🟢 İlk Destek: {ilk_destek:.2f}\n• 🔴 İlk Direnç: {ilk_direnc:.2f}"
