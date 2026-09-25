@@ -18,7 +18,7 @@ NTFY_URL = "https://ntfy.sh/borsa_senet"
 # Tek Merkezi Hafıza Dosyası
 MERKEZI_HAFIZA_DOSYASI = "borsa_hafiza.json"
 
-# Taranacak Periyotlar ve Kuralları (Hibrit çıkarıldı, yerine acil 15 dk yetiş eklendi)
+# Taranacak Periyotlar ve Kuralları
 TIMEFRAMES = [
     {
         "period": "15m",
@@ -32,7 +32,7 @@ TIMEFRAMES = [
     },
     {
         "period": "15m",
-        "label": "acil 15 dk yetiş",
+        "label": "acil 15 dk yetiş (Esnetilmiş Sprint)",
         "kural_tipi": "acil_15_dk",
     },
     {
@@ -160,36 +160,6 @@ def check_wave_margins(df, lookback=3):
     return False
   except Exception:
     return False
-
-
-def check_supertrend(df, period=10, multiplier=3):
-  hl2 = (df["High"] + df["Low"]) / 2
-  tr = pd.concat(
-      [
-          df["High"] - df["Low"],
-          (df["High"] - df["Close"].shift()).abs(),
-          (df["Low"] - df["Close"].shift()).abs(),
-      ],
-      axis=1,
-  ).max(axis=1)
-  atr = tr.rolling(period).mean()
-
-  upper_band = hl2 + (multiplier * atr)
-  lower_band = hl2 - (multiplier * atr)
-
-  close = df["Close"].values
-  ub = upper_band.values
-  lb = lower_band.values
-
-  uptrend = True
-  for i in range(period, len(df)):
-    if np.isnan(atr.iloc[i]):
-      continue
-    if close[i] > ub[i]:
-      uptrend = True
-    elif close[i] < lb[i]:
-      uptrend = False
-  return uptrend
 
 
 def hesapla_fibonacci_destek_direnc(df, window=100):
@@ -421,20 +391,20 @@ def run_scanner():
           ):
             sinyal_var = True
 
-        # --- ACİL 15 DK YETİŞ (Sprint / Ani Patlama Taraması) ---
+        # --- ACİL 15 DK YETİŞ (Esnetilmiş Sprint / Ani Patlama) ---
         elif kural_tipi == "acil_15_dk":
           prev_close = close.iloc[-2]
           roc_15m = ((close_curr - prev_close) / prev_close) * 100
           
           high_curr = high.iloc[-1]
-          tepede_kapatma = close_curr >= (high_curr * 0.995)
+          tepede_kapatma = close_curr >= (high_curr * 0.993)  # Esnetildi
           
-          hacim_patlamasi = volume.iloc[-1] > (volume.rolling(20).mean().iloc[-1] * 1.5)
+          hacim_patlamasi = volume.iloc[-1] > (volume.rolling(20).mean().iloc[-1] * 1.2)  # 1.5'ten 1.2'ye düşürüldü
           
-          sart_rsi = rsi_curr > 50
-          sart_mfi = mfi_curr > 40
+          sart_rsi = rsi_curr > 45  # 50'den esnetildi
+          sart_mfi = mfi_curr > 35  # 40'tan esnetildi
 
-          if roc_15m >= 1.0 and tepede_kapatma and hacim_patlamasi and sart_rsi and sart_mfi:
+          if roc_15m >= 0.6 and tepede_kapatma and hacim_patlamasi and sart_rsi and sart_mfi:  # %1'den %0.6'ya düşürüldü
             sinyal_var = True
 
         # --- 1H DALGA MARJLI KURAL SETİ ---
