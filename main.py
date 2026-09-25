@@ -492,8 +492,9 @@ def run_scanner():
             rvol_curr = volume.iloc[-1] / (volume.rolling(20).mean().iloc[-1] + 1e-10)
 
             baslik = f"BIST {label} Sinyal"
-            mesaj = (
+                            mesaj = (
                 f"🚀 *BIST {label} Sinyal* ({zaman_str})\n• Hisse:"
+                f" `🟦 {temiz_isim} 🟦` | Fiyat: {close_curr:.2f}\n• MFI: {mfi_curr:.1f}"
                 f" *{temiz_isim}* | Fiyat: {close_curr:.2f}\n• MFI: {mfi_curr:.1f}"
                 f" | CMF: {cmf_curr:.2f} | RSI: {rsi_curr:.1f} | RVOL:"
                 f" {rvol_curr:.2f}\n• 🟢 İlk Destek:"
