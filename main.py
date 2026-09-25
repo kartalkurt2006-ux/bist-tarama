@@ -391,20 +391,19 @@ def run_scanner():
           ):
             sinyal_var = True
 
-        # --- ACİL 15 DK YETİŞ (Esnetilmiş Sprint / Ani Patlama) ---
+        # --- ACİL 15 DK YETİŞ (Hacim Patlaması + Hull20 + MFI > 60 + RSI > 45) ---
         elif kural_tipi == "acil_15_dk":
-          prev_close = close.iloc[-2]
-          roc_15m = ((close_curr - prev_close) / prev_close) * 100
+          rvol_curr = volume.iloc[-1] / (volume.rolling(20).mean().iloc[-1] + 1e-10)
+          hacim_patlamasi = rvol_curr >= 3.0
           
-          high_curr = high.iloc[-1]
-          tepede_kapatma = close_curr >= (high_curr * 0.993)  # Esnetildi
+          hma20 = calculate_hma(close, 20)
+          hma20_curr = hma20.iloc[-1]
           
-          hacim_patlamasi = volume.iloc[-1] > (volume.rolling(20).mean().iloc[-1] * 1.2)  # 1.5'ten 1.2'ye düşürüldü
-          
-          sart_rsi = rsi_curr > 45  # 50'den esnetildi
-          sart_mfi = mfi_curr > 35  # 40'tan esnetildi
+          sart_hma = close_curr > hma20_curr  # Fiyat Hull 20'nin üstünde
+          sart_mfi = mfi_curr > 60
+          sart_rsi = rsi_curr > 45
 
-          if roc_15m >= 0.6 and tepede_kapatma and hacim_patlamasi and sart_rsi and sart_mfi:  # %1'den %0.6'ya düşürüldü
+          if hacim_patlamasi and sart_hma and sart_mfi and sart_rsi:
             sinyal_var = True
 
         # --- 1H DALGA MARJLI KURAL SETİ ---
