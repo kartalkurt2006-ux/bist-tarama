@@ -220,6 +220,9 @@ def run_scanner():
     clean_ticker = ticker.strip()
     temiz_isim = clean_ticker.replace(".IS", "")
 
+    tetiklenen_str = []
+    guncel_fiyat = 0.0
+
     try:
       # 1. ADIM: 15 dakikalık veriyi TEK SEFERDE çek
       df_15m = yf.download(clean_ticker, period="1mo", interval="15m", progress=False)
@@ -239,6 +242,7 @@ def run_scanner():
         low_15 = df_15m["Low"]
         volume_15 = df_15m["Volume"]
         close_curr_15 = close_15.iloc[-1]
+        guncel_fiyat = close_curr_15
 
         delta_15 = close_15.diff()
         gain_15 = (delta_15.where(delta_15 > 0, 0)).rolling(14).mean()
@@ -287,10 +291,8 @@ def run_scanner():
 
         if kapanis_teyit and (close_curr_15 > bb_middle) and (mfi_curr_15 > 60) and (cmf_curr_15 > -0.20) and (rsi_curr_15 > 50) and (rvol_curr_15 > 0.6):
           if simdi_epoch - tum_hafiza[kural_tipi].get(clean_ticker, 0) > COOLDOWN_SECONDS:
-            mesaj = f"🚀 *BIST {label} Sinyal* ({datetime.now(TZ_TR).strftime('%H:%M')})\n• Hisse: `🟦 {temiz_isim} 🟦` | Fiyat: {close_curr_15:.2f}\n• MFI: {mfi_curr_15:.1f} | RSI: {rsi_curr_15:.1f} | RVOL: {rvol_curr_15:.2f}\n• 🔴 Tarama: {label}"
-            send_ntfy(mesaj, f"BIST {label} Sinyal")
+            tetiklenen_str.append(f"• 🔴 Tarama: {label} (**MFi: {mfi_curr_15:.1f}** | RSI: {rsi_curr_15:.1f})")
             tum_hafiza[kural_tipi][clean_ticker] = simdi_epoch
-            hafiza_kaydet(tum_hafiza)
 
         # 2. Strateji: 15m Profesjonel Momentum (Yeşil Top 🟢)
         kural_tipi = "15m_profesjonel"
@@ -300,10 +302,8 @@ def run_scanner():
         sart_wave = check_wave_margins(df_15m, lookback=5)
         if sart_wave and (volume_15.iloc[-1] > volume_15.iloc[-2]) and (rvol_curr_15 > 1.0) and (close_curr_15 > hma20_15.iloc[-1]) and (close_curr_15 >= close_15.rolling(20).mean().iloc[-1]) and (mfi_curr_15 > 25) and (plus_di_curr_15 > 15) and (rsi_curr_15 > 45):
           if simdi_epoch - tum_hafiza[kural_tipi].get(clean_ticker, 0) > COOLDOWN_SECONDS:
-            mesaj = f"🚀 *BIST {label} Sinyal* ({datetime.now(TZ_TR).strftime('%H:%M')})\n• Hisse: `🟦 {temiz_isim} 🟦` | Fiyat: {close_curr_15:.2f}\n• MFI: {mfi_curr_15:.1f} | RSI: {rsi_curr_15:.1f} | RVOL: {rvol_curr_15:.2f}\n• 🟢 Tarama: {label}"
-            send_ntfy(mesaj, f"BIST {label} Sinyal")
+            tetiklenen_str.append(f"• 🟢 Tarama: {label} (**MFi: {mfi_curr_15:.1f}** | RSI: {rsi_curr_15:.1f})")
             tum_hafiza[kural_tipi][clean_ticker] = simdi_epoch
-            hafiza_kaydet(tum_hafiza)
 
         # 3. Strateji: Acil 15 dk yetiş (Sarı Top 🟡)
         kural_tipi = "acil_15_dk"
@@ -312,10 +312,8 @@ def run_scanner():
         
         if (rvol_curr_15 >= 0.6) and (close_curr_15 > hma20_15.iloc[-1]) and (mfi_curr_15 > 60) and (rsi_curr_15 > 45):
           if simdi_epoch - tum_hafiza[kural_tipi].get(clean_ticker, 0) > COOLDOWN_SECONDS:
-            mesaj = f"🚀 *BIST {label} Sinyal* ({datetime.now(TZ_TR).strftime('%H:%M')})\n• Hisse: `🟦 {temiz_isim} 🟦` | Fiyat: {close_curr_15:.2f}\n• MFI: {mfi_curr_15:.1f} | RSI: {rsi_curr_15:.1f} | RVOL: {rvol_curr_15:.2f}\n• 🟡 Tarama: {label}"
-            send_ntfy(mesaj, f"BIST {label} Sinyal")
+            tetiklenen_str.append(f"• 🟡 Tarama: {label} (**MFi: {mfi_curr_15:.1f}** | RSI: {rsi_curr_15:.1f})")
             tum_hafiza[kural_tipi][clean_ticker] = simdi_epoch
-            hafiza_kaydet(tum_hafiza)
 
         # 4. Strateji: Süper Fisher 15 (Mavi Top 🔵)
         kural_tipi = "super_fisher_15"
@@ -330,10 +328,8 @@ def run_scanner():
 
         if (rvol_curr_15 >= 0.6) and (close_curr_15 > strend_line.iloc[-1]) and (close_curr_15 > hma20_15.iloc[-1]) and sart_fisher and (mfi_curr_15 > 45) and (plus_di_curr_15 > minus_di_curr_15):
           if simdi_epoch - tum_hafiza[kural_tipi].get(clean_ticker, 0) > COOLDOWN_SECONDS:
-            mesaj = f"🚀 *BIST {label} Sinyal* ({datetime.now(TZ_TR).strftime('%H:%M')})\n• Hisse: `🟦 {temiz_isim} 🟦` | Fiyat: {close_curr_15:.2f}\n• MFI: {mfi_curr_15:.1f} | RSI: {rsi_curr_15:.1f} | RVOL: {rvol_curr_15:.2f}\n• 🔵 Tarama: {label}"
-            send_ntfy(mesaj, f"BIST {label} Sinyal")
+            tetiklenen_str.append(f"• 🔵 Tarama: {label} (**MFi: {mfi_curr_15:.1f}** | RSI: {rsi_curr_15:.1f})")
             tum_hafiza[kural_tipi][clean_ticker] = simdi_epoch
-            hafiza_kaydet(tum_hafiza)
 
       # --- 1 SAATLİK STRATEJİLER KONTROLÜ ---
       if not df_1h.empty and len(df_1h) >= 40:
@@ -345,6 +341,8 @@ def run_scanner():
         low_1h = df_1h["Low"]
         volume_1h = df_1h["Volume"]
         close_curr_1h = close_1h.iloc[-1]
+        if guncel_fiyat == 0.0:
+          guncel_fiyat = close_curr_1h
 
         delta_1h = close_1h.diff()
         gain_1h = (delta_1h.where(delta_1h > 0, 0)).rolling(14).mean()
@@ -370,10 +368,8 @@ def run_scanner():
 
         if (close_curr_1h > hma20_1h.iloc[-1]) and (rsi_curr_1h > 50) and (plus_di_curr_1h > 25) and wave_breakout_1h:
           if simdi_epoch - tum_hafiza[kural_tipi].get(clean_ticker, 0) > COOLDOWN_SECONDS:
-            mesaj = f"🚀 *BIST {label} Sinyal* ({datetime.now(TZ_TR).strftime('%H:%M')})\n• Hisse: `🟦 {temiz_isim} 🟦` | Fiyat: {close_curr_1h:.2f}\n• RSI: {rsi_curr_1h:.1f} | +DI: {plus_di_curr_1h:.1f}\n• 🟣 Tarama: {label}"
-            send_ntfy(mesaj, f"BIST {label} Sinyal")
+            tetiklenen_str.append(f"• 🟣 Tarama: {label} (RSI: {rsi_curr_1h:.1f} | +DI: {plus_di_curr_1h:.1f})")
             tum_hafiza[kural_tipi][clean_ticker] = simdi_epoch
-            hafiza_kaydet(tum_hafiza)
 
         # 6. Strateji: 1 saat süper (Turuncu Top 🟠)
         kural_tipi = "1_saat_super"
@@ -393,10 +389,15 @@ def run_scanner():
 
         if (close_curr_1h > hma20_1h.iloc[-1]) and (mfi_curr_1h > 30) and (plus_di_curr_1h > 20) and (cmf_curr_1h > -0.20) and wave_breakout_1h:
           if simdi_epoch - tum_hafiza[kural_tipi].get(clean_ticker, 0) > COOLDOWN_SECONDS:
-            mesaj = f"🚀 *BIST {label} Sinyal* ({datetime.now(TZ_TR).strftime('%H:%M')})\n• Hisse: `🟦 {temiz_isim} 🟦` | Fiyat: {close_curr_1h:.2f}\n• MFI: {mfi_curr_1h:.1f} | CMF: {cmf_curr_1h:.2f} | +DI: {plus_di_curr_1h:.1f}\n• 🟠 Tarama: {label}"
-            send_ntfy(mesaj, f"BIST {label} Sinyal")
+            tetiklenen_str.append(f"• 🟠 Tarama: {label} (**MFi: {mfi_curr_1h:.1f}** | CMF: {cmf_curr_1h:.2f})")
             tum_hafiza[kural_tipi][clean_ticker] = simdi_epoch
-            hafiza_kaydet(tum_hafiza)
+
+      # --- EĞER BU HİSSE İÇİN STRATEJİLER TETİKLENDİYSE TEK MESAJDA GÖNDER ---
+      if tetiklenen_str:
+        stratejiler_metni = "\n".join(tetiklenen_str)
+        mesaj = f"🚀 *BIST Çoklu Sinyal* ({datetime.now(TZ_TR).strftime('%H:%M')})\n• Hisse: `🟦 {temiz_isim} 🟦` | Fiyat: {guncel_fiyat:.2f}\n{stratejiler_metni}"
+        send_ntfy(mesaj, f"BIST Sinyal: {temiz_isim}")
+        hafiza_kaydet(tum_hafiza)
 
     except Exception as e:
       print(f"Hata oluştu ({clean_ticker}): {e}")
